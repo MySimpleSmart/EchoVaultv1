@@ -83,11 +83,12 @@ function App() {
         setLoading(true);
         setError(null);
         try {
-          const response = await fetch('/wp-json/wp/v2/borrower-profile', {
+          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
+            mode: 'cors'
           });
 
           if (response.ok) {

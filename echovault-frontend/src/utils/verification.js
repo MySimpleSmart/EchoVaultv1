@@ -45,70 +45,67 @@ const isValidEmailFormat = (email) => {
  */
 export const getVerificationStatus = (borrower) => {
   if (!borrower || typeof borrower !== 'object') {
-    return { status: 'Pending', color: 'red', percentage: 0 };
+    return { status: 'Pending', color: 'red', percentage: 0, missingFields: [] };
   }
 
-  // List of ALL fields that should be checked (Social Link 2 is optional)
-  const fieldsToCheck = [
-    // Basic info
-    'first_name',
-    'last_name', 
-    'email_address',
-    'date_of_birth',
-    'mobile_number',
-    'registration_number',
-    'home_address',
-    'document_type',
+  // Field configuration with display names
+  const fieldConfig = [
+    { key: 'first_name', label: 'First Name', category: 'Basic Info' },
+    { key: 'last_name', label: 'Last Name', category: 'Basic Info' },
+    { key: 'email_address', label: 'Email Address', category: 'Basic Info' },
+    { key: 'date_of_birth', label: 'Date of Birth', category: 'Basic Info' },
+    { key: 'mobile_number', label: 'Mobile Number', category: 'Basic Info' },
+    { key: 'registration_number', label: 'Registration Number', category: 'Basic Info' },
+    { key: 'home_address', label: 'Home Address', category: 'Basic Info' },
+    { key: 'document_type', label: 'Document Type', category: 'Basic Info' },
     
-    // Social links (only social_link_1 is required, social_link_2 is optional)
-    'social_link_1',
-    // 'social_link_2', // OPTIONAL - can be empty and still be verified
+    { key: 'social_link_1', label: 'Social Link 1', category: 'Social' },
+    // social_link_2 is optional
     
-    // Employment
-    'employment_status',
-    'work_rights',
-    'employer_name',
-    'job_title',
-    'monthly_income_aud',
-    'employment_start_date',
-    'employer_phone',
-    'employer_email',
-    'employer_address',
+    { key: 'employment_status', label: 'Employment Status', category: 'Employment' },
+    { key: 'work_rights', label: 'Work Rights', category: 'Employment' },
+    { key: 'employer_name', label: 'Employer Name', category: 'Employment' },
+    { key: 'job_title', label: 'Job Title', category: 'Employment' },
+    { key: 'monthly_income_aud', label: 'Monthly Income', category: 'Employment' },
+    { key: 'employment_start_date', label: 'Employment Start Date', category: 'Employment' },
+    { key: 'employer_phone', label: 'Employer Phone', category: 'Employment' },
+    { key: 'employer_email', label: 'Employer Email', category: 'Employment' },
+    { key: 'employer_address', label: 'Employer Address', category: 'Employment' },
     
-    // Family
-    'marital_status',
-    'family_relationship',
-    'family_member_full_name',
-    'family_member_phone',
-    'family_member_email',
+    { key: 'marital_status', label: 'Marital Status', category: 'Family' },
+    { key: 'family_relationship', label: 'Family Relationship', category: 'Family' },
+    { key: 'family_member_full_name', label: 'Family Member Name', category: 'Family' },
+    { key: 'family_member_phone', label: 'Family Member Phone', category: 'Family' },
+    { key: 'family_member_email', label: 'Family Member Email', category: 'Family' },
     
-    // Bank
-    'bank_name',
-    'account_name',
-    'bsb_number',
-    'account_number'
+    { key: 'bank_name', label: 'Bank Name', category: 'Banking' },
+    { key: 'account_name', label: 'Account Name', category: 'Banking' },
+    { key: 'bsb_number', label: 'BSB Number', category: 'Banking' },
+    { key: 'account_number', label: 'Account Number', category: 'Banking' }
   ];
 
-  // Count how many fields have content
+  // Check each field and track missing ones
   let completedFields = 0;
   let totalFields = 0;
+  const missingFields = [];
 
-  fieldsToCheck.forEach(fieldName => {
-    const value = borrower[fieldName];
+  fieldConfig.forEach(field => {
+    const value = borrower[field.key];
+    totalFields++; // Always increment total fields
     
     // Special handling for email field
-    if (fieldName === 'email_address') {
+    if (field.key === 'email_address') {
       if (isValidEmailFormat(value)) {
         completedFields++;
+      } else {
+        missingFields.push(field);
       }
-      totalFields++;
     }
     // Regular field check
     else if (hasContent(value)) {
       completedFields++;
-      totalFields++;
     } else {
-      totalFields++;
+      missingFields.push(field);
     }
   });
 
@@ -117,13 +114,13 @@ export const getVerificationStatus = (borrower) => {
 
   // Return status based on completion
   if (percentage === 100) {
-    return { status: 'Verified', color: 'green', percentage };
+    return { status: 'Verified', color: 'green', percentage, missingFields: [] };
   } else if (percentage >= 75) {
-    return { status: 'Almost Complete', color: 'blue', percentage };
+    return { status: 'Almost Complete', color: 'blue', percentage, missingFields };
   } else if (percentage >= 50) {
-    return { status: 'In Progress', color: 'yellow', percentage };
+    return { status: 'In Progress', color: 'yellow', percentage, missingFields };
   } else {
-    return { status: 'Pending', color: 'red', percentage };
+    return { status: 'Pending', color: 'red', percentage, missingFields };
   }
 };
 

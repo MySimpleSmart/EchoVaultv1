@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './BorrowerProfile.css';
+import ConfirmationModal from './components/ConfirmationModal';
+import SuccessMessage from './components/SuccessMessage';
 
 const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrower, isEditing }) => {
   const [formData, setFormData] = useState({
@@ -46,6 +48,10 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
   const [existingDocument, setExistingDocument] = useState(null);
   const [existingMediaDetails, setExistingMediaDetails] = useState(null);
   const [activeTab, setActiveTab] = useState('general');
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     // If editing, populate form with existing data
@@ -106,7 +112,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media/${mediaId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
-        }
+        },
+        mode: 'cors'
       });
       
       if (response.ok) {
@@ -124,8 +131,29 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       ...prev,
       [name]: type === 'file' ? files[0] : value
     }));
+    setHasUnsavedChanges(true);
 
     // Don't check email automatically - let user type freely
+  };
+
+  const handleCancel = () => {
+    if (hasUnsavedChanges) {
+      setShowUnsavedModal(true);
+    } else {
+      onCancel();
+    }
+  };
+
+  const handleConfirmCancel = () => {
+    setShowUnsavedModal(false);
+    setHasUnsavedChanges(false);
+    onCancel();
+  };
+
+  const showSuccess = (message) => {
+    setSuccessMessage(message);
+    setShowSuccessMessage(true);
+    setHasUnsavedChanges(false);
   };
 
   const checkEmailExists = async (email) => {
@@ -148,7 +176,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        }
+        },
+        mode: 'cors'
       });
 
       if (response.ok) {
@@ -199,7 +228,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
-            }
+            },
+            mode: 'cors'
           });
 
           if (response.ok) {
@@ -280,7 +310,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify(userData)
+          body: JSON.stringify(userData),
+          mode: 'cors'
         });
 
         if (!userResponse.ok) {
@@ -313,7 +344,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
             headers: {
               'Authorization': `Bearer ${token}`
             },
-            body: mediaFormData
+            body: mediaFormData,
+            mode: 'cors'
           });
 
           console.log('Media upload response status:', mediaResponse.status);
@@ -351,45 +383,53 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         return;
       }
 
+      // Helper function to clean empty values - send empty string to clear fields
+      const cleanValue = (value) => {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return value;
+      };
+
       // Prepare data for WordPress REST API - use JSON for PODs fields
       const borrowerData = {
         title: `${formData.first_name} ${formData.last_name}`,
         status: 'publish',
         author: userId,
         // General Fields - at root level for PODs
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        email_address: formData.email_address,
-        date_of_birth: formData.date_of_birth,
-        mobile_number: formData.mobile_number,
-        registration_number: formData.registration_number,
-        home_address: formData.home_address,
+        first_name: cleanValue(formData.first_name),
+        last_name: cleanValue(formData.last_name),
+        email_address: cleanValue(formData.email_address),
+        date_of_birth: cleanValue(formData.date_of_birth),
+        mobile_number: cleanValue(formData.mobile_number),
+        registration_number: cleanValue(formData.registration_number),
+        home_address: cleanValue(formData.home_address),
         // Social Links
-        social_link_1: formData.social_link_1,
-        social_link_2: formData.social_link_2,
+        social_link_1: cleanValue(formData.social_link_1),
+        social_link_2: cleanValue(formData.social_link_2),
         // Employment Fields
-        employment_status: formData.employment_status,
-        work_rights: formData.work_rights,
-        employer_name: formData.employer_name,
-        job_title: formData.job_title,
-        monthly_income_aud: formData.monthly_income_aud,
-        employment_start_date: formData.employment_start_date,
-        employer_phone: formData.employer_phone,
-        employer_email: formData.employer_email,
-        employer_address: formData.employer_address,
+        employment_status: cleanValue(formData.employment_status),
+        work_rights: cleanValue(formData.work_rights),
+        employer_name: cleanValue(formData.employer_name),
+        job_title: cleanValue(formData.job_title),
+        monthly_income_aud: cleanValue(formData.monthly_income_aud),
+        employment_start_date: cleanValue(formData.employment_start_date),
+        employer_phone: cleanValue(formData.employer_phone),
+        employer_email: cleanValue(formData.employer_email),
+        employer_address: cleanValue(formData.employer_address),
         // Family Fields
-        marital_status: formData.marital_status,
-        family_relationship: formData.family_relationship,
-        family_member_full_name: formData.family_member_full_name,
-        family_member_phone: formData.family_member_phone,
-        family_member_email: formData.family_member_email,
+        marital_status: cleanValue(formData.marital_status),
+        family_relationship: cleanValue(formData.family_relationship),
+        family_member_full_name: cleanValue(formData.family_member_full_name),
+        family_member_phone: cleanValue(formData.family_member_phone),
+        family_member_email: cleanValue(formData.family_member_email),
         // Bank Fields
-        bank_name: formData.bank_name,
-        account_name: formData.account_name,
-        bsb_number: formData.bsb_number,
-        account_number: formData.account_number,
+        bank_name: cleanValue(formData.bank_name),
+        account_name: cleanValue(formData.account_name),
+        bsb_number: cleanValue(formData.bsb_number),
+        account_number: cleanValue(formData.account_number),
         // Personal Document Fields
-        document_type: formData.document_type,
+        document_type: cleanValue(formData.document_type),
         document_upload: documentMediaId || null // Store the media ID directly, or null if upload failed
       };
 
@@ -398,6 +438,12 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         : `${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`;
       
       const method = isEditing ? 'PUT' : 'POST';
+      
+      console.log('API URL:', process.env.REACT_APP_API_URL);
+      console.log('Full URL:', url);
+      console.log('Method:', method);
+      console.log('Token:', token ? `${token.substring(0, 20)}...` : 'No token');
+      console.log('Borrower Data:', borrowerData);
 
       const response = await fetch(url, {
         method: method,
@@ -405,9 +451,13 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(borrowerData)
+        body: JSON.stringify(borrowerData),
+        mode: 'cors'
       });
 
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+      
       const data = await response.json();
       console.log('Borrower profile response:', data);
 
@@ -417,7 +467,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
           ? `Borrower profile updated successfully!${documentInfo}`
           : `Borrower profile created successfully! New user account created for ${formData.email_address} with temporary password: TempPassword123!${documentInfo}`;
         
-        setSuccess(successMessage);
+        showSuccess(successMessage);
         
         // Store the created/updated borrower ID for future reference
         const profileWithId = { ...formData, id: data.id, userId: userId };
@@ -436,14 +486,27 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       
     } catch (err) {
       console.error('Error creating borrower profile:', err);
-      setError('Network error. Please try again.');
+      console.error('Error details:', {
+        message: err.message,
+        name: err.name,
+        stack: err.stack
+      });
+      
+      if (err.message.includes('CORS') || err.message.includes('Access-Control-Allow-Origin')) {
+        setError('CORS error: Please check if the WordPress backend allows requests from this domain.');
+      } else if (err.message.includes('Failed to fetch')) {
+        setError('Network error: Unable to connect to the server. Please check your internet connection.');
+      } else {
+        setError(`Error: ${err.message}`);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+    <>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         
           {/* Tabs */}
           <div className="border-b border-gray-200">
@@ -1215,14 +1278,37 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
               </button>
               <button 
                 type="button" 
-                onClick={onCancel} 
+                onClick={handleCancel} 
                 className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium"
               >
                 Cancel
             </button>
           </div>
         </form>
-    </div>
+      </div>
+
+      {/* Confirmation Modal for Unsaved Changes */}
+      <ConfirmationModal
+        isOpen={showUnsavedModal}
+        onClose={() => setShowUnsavedModal(false)}
+        onConfirm={handleConfirmCancel}
+        title="Unsaved Changes"
+        message="You have unsaved changes. Are you sure you want to leave without saving?"
+        confirmText="Leave Without Saving"
+        cancelText="Continue Editing"
+        type="warning"
+      />
+
+      {/* Success Message */}
+      <SuccessMessage
+        isVisible={showSuccessMessage}
+        onClose={() => setShowSuccessMessage(false)}
+        message={successMessage}
+        type="success"
+        autoClose={true}
+        duration={5000}
+      />
+    </>
   );
 };
 

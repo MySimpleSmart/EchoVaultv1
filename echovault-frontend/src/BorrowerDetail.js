@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { getVerificationStatus } from './utils/verification';
+import MissingFieldsModal from './components/MissingFieldsModal';
 
 const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
   const [mediaDetails, setMediaDetails] = useState(null);
   const [loadingMedia, setLoadingMedia] = useState(false);
   const [activeTab, setActiveTab] = useState('general');
+  const [authorName, setAuthorName] = useState(null);
+  const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
 
   // Fetch media details if document_upload is a media ID
   useEffect(() => {
@@ -23,7 +26,8 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
             const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media/${mediaId}`, {
               headers: {
                 'Authorization': `Bearer ${token}`
-              }
+              },
+              mode: 'cors'
             });
             
             if (response.ok) {
@@ -50,6 +54,35 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
 
     fetchMediaDetails();
   }, [borrower?.document_upload]);
+
+  // Fetch author name
+  useEffect(() => {
+    const fetchAuthorName = async () => {
+      if (borrower?.author) {
+        try {
+          const token = localStorage.getItem('jwt_token');
+          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/users/${borrower.author}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            mode: 'cors'
+          });
+          
+          if (response.ok) {
+            const user = await response.json();
+            setAuthorName(user.name || user.display_name || `User ${borrower.author}`);
+          } else {
+            setAuthorName(`User ${borrower.author}`);
+          }
+        } catch (err) {
+          console.error('Error fetching author name:', err);
+          setAuthorName(`User ${borrower.author}`);
+        }
+      }
+    };
+
+    fetchAuthorName();
+  }, [borrower?.author]);
 
   if (!borrower) {
     return (
@@ -121,6 +154,17 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                     {Math.round(verificationStatus.percentage)}% Complete
                   </span>
+                  {verificationStatus.missingFields.length > 0 && (
+                    <button
+                      onClick={() => setShowMissingFieldsModal(true)}
+                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 hover:bg-yellow-200 transition-colors"
+                    >
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      {verificationStatus.missingFields.length} missing
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -596,6 +640,14 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <span className="text-xs text-gray-500">
                   {Math.round(verificationStatus.percentage)}%
                 </span>
+                {verificationStatus.missingFields.length > 0 && (
+                  <button
+                    onClick={() => setShowMissingFieldsModal(true)}
+                    className="text-xs text-yellow-600 hover:text-yellow-800 underline"
+                  >
+                    View {verificationStatus.missingFields.length} missing fields
+                  </button>
+                )}
               </div>
             </div>
             <div>
@@ -613,12 +665,20 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
               </span>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Author ID</label>
-              <p className="text-gray-900 font-medium">{borrower.author || 'N/A'}</p>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Author</label>
+              <p className="text-gray-900 font-medium">{authorName || 'Loading...'}</p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Missing Fields Modal */}
+      <MissingFieldsModal
+        isOpen={showMissingFieldsModal}
+        onClose={() => setShowMissingFieldsModal(false)}
+        missingFields={verificationStatus.missingFields}
+        verificationStatus={verificationStatus}
+      />
     </div>
   );
 };

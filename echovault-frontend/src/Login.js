@@ -22,7 +22,7 @@ const Login = ({ onLoginSuccess }) => {
           username,
           password,
         }),
-        mode: 'cors', // Explicitly set CORS mode
+        mode: 'cors'
       });
 
       const data = await response.json();
