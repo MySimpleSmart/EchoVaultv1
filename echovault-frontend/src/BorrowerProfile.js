@@ -39,7 +39,10 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
     bank_name: '',
     account_name: '',
     bsb_number: '',
-    account_number: ''
+    account_number: '',
+    // Visa Status Fields
+    visa_type: '',
+    visa_expiry_date: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -89,7 +92,10 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         bank_name: editingBorrower.bank_name || '',
         account_name: editingBorrower.account_name || '',
         bsb_number: editingBorrower.bsb_number || '',
-        account_number: editingBorrower.account_number || ''
+        account_number: editingBorrower.account_number || '',
+        // Visa Status Fields
+        visa_type: editingBorrower.visa_type || '',
+        visa_expiry_date: editingBorrower.visa_expiry_date || ''
       });
       
       // Store existing document info for display
@@ -250,14 +256,16 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       }
     }
 
-    if (!formData.document_type) {
-      setError('Please select a document type.');
-      setLoading(false);
-      return;
-    }
-
-    // Validate file upload if provided
+    // Only validate document fields if a document is being uploaded
     if (formData.document_upload) {
+      // If uploading a document, document type is required
+      if (!formData.document_type) {
+        setError('Please select a document type when uploading a document.');
+        setLoading(false);
+        return;
+      }
+
+      // Validate file upload
       const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf', 'image/gif'];
       const maxSize = 5 * 1024 * 1024; // 5MB
 
@@ -274,12 +282,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       }
     }
 
-    // Only require document upload for new borrowers, not when editing
-    if (!isEditing && !formData.document_upload) {
-      setError('Please upload a document.');
-      setLoading(false);
-      return;
-    }
+    // Document upload is optional for both new and existing borrowers
+    // Users can save the profile and upload documents later
 
     try {
       const token = localStorage.getItem('jwt_token');
@@ -383,55 +387,54 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         return;
       }
 
-      // Helper function to clean empty values - send empty string to clear fields
+      // Helper function to clean empty values - only send non-empty values
       const cleanValue = (value) => {
-        if (value === null || value === undefined) {
-          return '';
+        if (value === null || value === undefined || value === '') {
+          return null; // Don't send empty values to avoid API issues
         }
         return value;
       };
 
-      // Prepare data for WordPress REST API - use JSON for PODs fields
+      // Prepare data for WordPress REST API - only include fields with values
       const borrowerData = {
         title: `${formData.first_name} ${formData.last_name}`,
         status: 'publish',
         author: userId,
-        // General Fields - at root level for PODs
-        first_name: cleanValue(formData.first_name),
-        last_name: cleanValue(formData.last_name),
-        email_address: cleanValue(formData.email_address),
-        date_of_birth: cleanValue(formData.date_of_birth),
-        mobile_number: cleanValue(formData.mobile_number),
-        registration_number: cleanValue(formData.registration_number),
-        home_address: cleanValue(formData.home_address),
-        // Social Links
-        social_link_1: cleanValue(formData.social_link_1),
-        social_link_2: cleanValue(formData.social_link_2),
-        // Employment Fields
-        employment_status: cleanValue(formData.employment_status),
-        work_rights: cleanValue(formData.work_rights),
-        employer_name: cleanValue(formData.employer_name),
-        job_title: cleanValue(formData.job_title),
-        monthly_income_aud: cleanValue(formData.monthly_income_aud),
-        employment_start_date: cleanValue(formData.employment_start_date),
-        employer_phone: cleanValue(formData.employer_phone),
-        employer_email: cleanValue(formData.employer_email),
-        employer_address: cleanValue(formData.employer_address),
-        // Family Fields
-        marital_status: cleanValue(formData.marital_status),
-        family_relationship: cleanValue(formData.family_relationship),
-        family_member_full_name: cleanValue(formData.family_member_full_name),
-        family_member_phone: cleanValue(formData.family_member_phone),
-        family_member_email: cleanValue(formData.family_member_email),
-        // Bank Fields
-        bank_name: cleanValue(formData.bank_name),
-        account_name: cleanValue(formData.account_name),
-        bsb_number: cleanValue(formData.bsb_number),
-        account_number: cleanValue(formData.account_number),
-        // Personal Document Fields
-        document_type: cleanValue(formData.document_type),
-        document_upload: documentMediaId || null // Store the media ID directly, or null if upload failed
+        // Always include required fields
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email_address: formData.email_address
       };
+
+      // Only add fields that have actual values
+      const fieldsToCheck = [
+        'date_of_birth', 'mobile_number', 'registration_number', 'home_address',
+        'social_link_1', 'social_link_2',
+        'employment_status', 'work_rights', 'employer_name', 'job_title', 
+        'monthly_income_aud', 'employment_start_date', 'employer_phone', 
+        'employer_email', 'employer_address',
+        'marital_status', 'family_relationship', 'family_member_full_name', 
+        'family_member_phone', 'family_member_email',
+        'bank_name', 'account_name', 'bsb_number', 'account_number',
+        'visa_type', 'visa_expiry_date', 'document_type'
+      ];
+
+      fieldsToCheck.forEach(field => {
+        const value = formData[field];
+        // Check if value exists and is not empty (handle both strings and other types)
+        if (value !== null && value !== undefined && value !== '') {
+          // Convert to string and trim for string values, or use as-is for other types
+          const stringValue = String(value).trim();
+          if (stringValue !== '') {
+            borrowerData[field] = value;
+          }
+        }
+      });
+
+      // Add document upload if available
+      if (documentMediaId) {
+        borrowerData.document_upload = documentMediaId;
+      }
 
       const url = isEditing 
         ? `${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile/${editingBorrower.id}`
@@ -521,6 +524,17 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                 }`}
               >
                 General Information
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('visa')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'visa'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Visa Status
               </button>
               <button
                 type="button"
@@ -728,6 +742,72 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
               />
             </div>
           </div>
+              </div>
+            )}
+
+            {/* Visa Status Tab */}
+            {activeTab === 'visa' && (
+              <div className="mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label htmlFor="visa_type" className="block text-sm font-medium text-gray-700 mb-2">
+                      Visa Type
+                    </label>
+                    <select
+                      id="visa_type"
+                      name="visa_type"
+                      value={formData.visa_type}
+                      onChange={handleInputChange}
+                      disabled={loading}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
+                    >
+                      <option value="">Select visa type</option>
+                      <option value="Australian Citizen">Australian Citizen</option>
+                      <option value="Permanent Resident">Permanent Resident</option>
+                      <option value="Temporary Skill Shortage Visa (Subclass 482)">Temporary Skill Shortage Visa (Subclass 482)</option>
+                      <option value="Skilled Independent Visa (Subclass 189)">Skilled Independent Visa (Subclass 189)</option>
+                      <option value="Skilled Nominated Visa (Subclass 190)">Skilled Nominated Visa (Subclass 190)</option>
+                      <option value="Skilled Work Regional (Provisional) Visa (Subclass 491)">Skilled Work Regional (Provisional) Visa (Subclass 491)</option>
+                      <option value="Student Visa (Subclass 500)">Student Visa (Subclass 500)</option>
+                      <option value="Graduate Visa (Subclass 485)">Graduate Visa (Subclass 485)</option>
+                      <option value="Working Holiday Visa (Subclass 417)">Working Holiday Visa (Subclass 417)</option>
+                      <option value="Work and Holiday Visa (Subclass 462)">Work and Holiday Visa (Subclass 462)</option>
+                      <option value="Partner Visa (Subclass 820/801)">Partner Visa (Subclass 820/801)</option>
+                      <option value="Bridging Visa A">Bridging Visa A</option>
+                      <option value="Bridging Visa B">Bridging Visa B</option>
+                      <option value="Bridging Visa C">Bridging Visa C</option>
+                      <option value="Protection / Humanitarian Visa (Subclass 866)">Protection / Humanitarian Visa (Subclass 866)</option>
+                      <option value="Refugee Visa (Subclass 200)">Refugee Visa (Subclass 200)</option>
+                      <option value="Tourist Visa (Subclass 600)">Tourist Visa (Subclass 600)</option>
+                      <option value="Visitor Visa (Subclass 651)">Visitor Visa (Subclass 651)</option>
+                      <option value="Temporary Activity Visa (Subclass 408)">Temporary Activity Visa (Subclass 408)</option>
+                      <option value="Business Innovation and Investment Visa (Subclass 188/888)">Business Innovation and Investment Visa (Subclass 188/888)</option>
+                      <option value="Employer Nomination Scheme (Subclass 186)">Employer Nomination Scheme (Subclass 186)</option>
+                      <option value="Regional Sponsored Migration Scheme (Subclass 187)">Regional Sponsored Migration Scheme (Subclass 187)</option>
+                      <option value="Training Visa (Subclass 407)">Training Visa (Subclass 407)</option>
+                      <option value="Temporary Graduate Visa (Subclass 485)">Temporary Graduate Visa (Subclass 485)</option>
+                      <option value="Temporary Work (Short Stay Specialist) Visa (Subclass 400)">Temporary Work (Short Stay Specialist) Visa (Subclass 400)</option>
+                      <option value="Working Holiday Maker (WHM) Extension Visa">Working Holiday Maker (WHM) Extension Visa</option>
+                      <option value="Resident Return Visa (Subclass 155/157)">Resident Return Visa (Subclass 155/157)</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="visa_expiry_date" className="block text-sm font-medium text-gray-700 mb-2">
+                      Visa Expiry Date
+                    </label>
+                    <input
+                      type="date"
+                      id="visa_expiry_date"
+                      name="visa_expiry_date"
+                      value={formData.visa_expiry_date}
+                      onChange={handleInputChange}
+                      disabled={loading}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 

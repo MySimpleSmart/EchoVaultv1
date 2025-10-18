@@ -200,6 +200,17 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab('visa')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'visa'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Visa Status
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('document')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'document'
@@ -332,6 +343,41 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                         </a>
                       ) : 'Not provided'}
                     </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Visa Status Tab */}
+        {activeTab === 'visa' && (
+          <div className="p-6">
+            <div className="space-y-8">
+              {/* Visa Status Section */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Visa Status</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Visa Type
+                    </label>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">
+                        {borrower.visa_type || 'Not specified'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Visa Expiry Date
+                    </label>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">
+                        {borrower.visa_expiry_date ? new Date(borrower.visa_expiry_date).toLocaleDateString() : 'Not specified'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
