@@ -81,7 +81,10 @@ export const getVerificationStatus = (borrower) => {
     { key: 'bank_name', label: 'Bank Name', category: 'Banking' },
     { key: 'account_name', label: 'Account Name', category: 'Banking' },
     { key: 'bsb_number', label: 'BSB Number', category: 'Banking' },
-    { key: 'account_number', label: 'Account Number', category: 'Banking' }
+    { key: 'account_number', label: 'Account Number', category: 'Banking' },
+    
+    { key: 'visa_type', label: 'Visa Type', category: 'Visa Status' },
+    { key: 'visa_expiry_date', label: 'Visa Expiry Date', category: 'Visa Status' }
   ];
 
   // Check each field and track missing ones

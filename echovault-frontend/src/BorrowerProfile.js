@@ -406,7 +406,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         email_address: formData.email_address
       };
 
-      // Only add fields that have actual values
+      // Include ALL fields - send empty strings to clear fields that were removed
       const fieldsToCheck = [
         'date_of_birth', 'mobile_number', 'registration_number', 'home_address',
         'social_link_1', 'social_link_2',
@@ -421,13 +421,11 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
 
       fieldsToCheck.forEach(field => {
         const value = formData[field];
-        // Check if value exists and is not empty (handle both strings and other types)
-        if (value !== null && value !== undefined && value !== '') {
-          // Convert to string and trim for string values, or use as-is for other types
-          const stringValue = String(value).trim();
-          if (stringValue !== '') {
-            borrowerData[field] = value;
-          }
+        // Always include the field - send empty string if cleared, actual value if filled
+        if (value !== null && value !== undefined) {
+          borrowerData[field] = value;
+        } else {
+          borrowerData[field] = ''; // Send empty string to clear the field
         }
       });
 
