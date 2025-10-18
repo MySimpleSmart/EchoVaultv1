@@ -1,0 +1,64 @@
+{
+  "pods": [
+    {
+      "name": "Borrower",
+      "label": "Borrowers",
+      "type": "post_type",
+      "description": "Client profiles for the loan system",
+      "public": true,
+      "show_ui": true,
+      "show_in_rest": true,
+      "menu_icon": "dashicons-id",
+      "supports_title": true,
+      "fields": [
+        {"name": "full_name", "label": "Full Name", "type": "text", "required": true},
+        {"name": "national_id", "label": "National ID", "type": "text"},
+        {"name": "date_of_birth", "label": "Date of Birth", "type": "date"},
+        {
+          "name": "gender",
+          "label": "Gender",
+          "type": "pick",
+          "pick_format_type": "single",
+          "pick_object": "custom-simple",
+          "pick_custom": {"male": "Male", "female": "Female", "other": "Other"}
+        },
+        {"name": "phone", "label": "Phone Number", "type": "text"},
+        {"name": "email", "label": "Email Address", "type": "text"},
+        {"name": "address", "label": "Address", "type": "paragraph"},
+        {"name": "city", "label": "City / Suburb", "type": "text"},
+        {
+          "name": "employment_status",
+          "label": "Employment Status",
+          "type": "pick",
+          "pick_format_type": "single",
+          "pick_object": "custom-simple",
+          "pick_custom": {
+            "full_time": "Full-time",
+            "part_time": "Part-time",
+            "self_employed": "Self-employed",
+            "unemployed": "Unemployed"
+          }
+        },
+        {"name": "monthly_income", "label": "Monthly Income", "type": "number"},
+        {"name": "employer_name", "label": "Employer Name", "type": "text"},
+        {"name": "employer_phone", "label": "Employer Phone", "type": "text"},
+        {"name": "emergency_contact_name", "label": "Emergency Contact Name", "type": "text"},
+        {"name": "emergency_contact_phone", "label": "Emergency Contact Phone", "type": "text"},
+        {
+          "name": "profile_status",
+          "label": "Profile Status",
+          "type": "pick",
+          "pick_format_type": "single",
+          "pick_object": "custom-simple",
+          "pick_custom": {
+            "active": "Active",
+            "inactive": "Inactive",
+            "suspended": "Suspended"
+          }
+        },
+        {"name": "profile_photo", "label": "Profile Photo", "type": "file"},
+        {"name": "documents", "label": "Documents (ID, Payslip, etc.)", "type": "file"}
+      ]
+    }
+  ]
+}
