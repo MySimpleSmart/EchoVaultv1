@@ -48,7 +48,7 @@ export const getVerificationStatus = (borrower) => {
     return { status: 'Pending', color: 'red', percentage: 0 };
   }
 
-  // List of ALL fields that should be checked
+  // List of ALL fields that should be checked (Social Link 2 is optional)
   const fieldsToCheck = [
     // Basic info
     'first_name',
@@ -60,9 +60,9 @@ export const getVerificationStatus = (borrower) => {
     'home_address',
     'document_type',
     
-    // Social links
+    // Social links (only social_link_1 is required, social_link_2 is optional)
     'social_link_1',
-    'social_link_2',
+    // 'social_link_2', // OPTIONAL - can be empty and still be verified
     
     // Employment
     'employment_status',
