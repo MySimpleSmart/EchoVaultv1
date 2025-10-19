@@ -13,8 +13,6 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
   useEffect(() => {
     const fetchMediaDetails = async () => {
       if (borrower?.document_upload) {
-        console.log('Document upload field:', borrower.document_upload);
-        console.log('Document upload type:', typeof borrower.document_upload);
         
         if (typeof borrower.document_upload === 'number' || 
             (typeof borrower.document_upload === 'string' && !isNaN(borrower.document_upload))) {

@@ -67,10 +67,39 @@ function App() {
     setCurrentView('edit-borrower');
   };
 
+  const refreshBorrowers = async () => {
+    if (token) {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          mode: 'cors'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setBorrowers(data);
+        } else {
+          setError('Failed to fetch borrowers');
+        }
+      } catch (err) {
+        setError('Network error occurred');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   const handleBack = () => {
     if (currentView === 'borrower-detail' || currentView === 'edit-borrower') {
       setCurrentView('borrowers');
       setSelectedBorrower(null);
+      // Refresh borrowers data when navigating back from edit
+      refreshBorrowers();
     } else if (currentView === 'create-borrower') {
       setCurrentView('dashboard');
     }
@@ -79,32 +108,7 @@ function App() {
   // Fetch borrowers when logged in
   useEffect(() => {
     if (isLoggedIn && token) {
-      const fetchBorrowers = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            mode: 'cors'
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            setBorrowers(data);
-          } else {
-            setError('Failed to fetch borrowers');
-          }
-        } catch (err) {
-          setError('Network error occurred');
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      fetchBorrowers();
+      refreshBorrowers();
     }
   }, [isLoggedIn, token]);
 
@@ -119,7 +123,13 @@ function App() {
       <div className="flex">
         <Sidebar 
           currentView={currentView} 
-          setCurrentView={setCurrentView}
+          setCurrentView={(view) => {
+            setCurrentView(view);
+            // Refresh borrowers when navigating to borrowers list
+            if (view === 'borrowers') {
+              refreshBorrowers();
+            }
+          }}
           onCreateNew={handleCreateNew}
         />
         <div className="flex-1 flex flex-col">

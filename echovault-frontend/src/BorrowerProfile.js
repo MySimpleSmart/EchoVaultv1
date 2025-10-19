@@ -298,8 +298,65 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
 
       // Only create new user if creating new borrower
       if (!isEditing) {
+        // Generate unique username from email and name
+        const generateUniqueUsername = async (email, firstName, lastName) => {
+          const baseUsername = email.split('@')[0]
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '') // Remove special characters
+            .substring(0, 20); // Limit length
+          
+          let username = baseUsername;
+          let counter = 1;
+          
+          // Check if username exists and generate unique one
+          while (true) {
+            try {
+              const checkResponse = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/users?search=${username}`, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                mode: 'cors'
+              });
+              
+              if (checkResponse.ok) {
+                const users = await checkResponse.json();
+                const userExists = users.some(user => user.slug === username);
+                
+                if (!userExists) {
+                  break; // Username is available
+                }
+              }
+              
+              // Username exists, try with counter
+              username = `${baseUsername}${counter}`;
+              counter++;
+              
+              // Prevent infinite loop
+              if (counter > 999) {
+                // Fallback to timestamp-based username
+                username = `${baseUsername}${Date.now().toString().slice(-4)}`;
+                break;
+              }
+            } catch (error) {
+              console.error('Error checking username:', error);
+              // Fallback to timestamp-based username
+              username = `${baseUsername}${Date.now().toString().slice(-4)}`;
+              break;
+            }
+          }
+          
+          return username;
+        };
+
+        const uniqueUsername = await generateUniqueUsername(
+          formData.email_address, 
+          formData.first_name, 
+          formData.last_name
+        );
+
         const userData = {
-          username: formData.email_address.split('@')[0], // Use email prefix as username
+          username: uniqueUsername,
           email: formData.email_address,
           password: 'TempPassword123!', // Temporary password - should be changed by borrower
           first_name: formData.first_name,
@@ -339,9 +396,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
           mediaFormData.append('title', `Document for ${formData.first_name} ${formData.last_name}`);
           mediaFormData.append('description', `Document upload for borrower profile`);
 
-          console.log('Uploading file to media library:', formData.document_upload.name);
-          console.log('File size:', formData.document_upload.size);
-          console.log('File type:', formData.document_upload.type);
 
           const mediaResponse = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media`, {
             method: 'POST',
@@ -352,19 +406,12 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
             mode: 'cors'
           });
 
-          console.log('Media upload response status:', mediaResponse.status);
-          console.log('Media upload response headers:', mediaResponse.headers);
 
           if (mediaResponse.ok) {
             const mediaData = await mediaResponse.json();
             documentMediaId = mediaData.id;
-            console.log('Media uploaded successfully, ID:', documentMediaId);
-            console.log('Media data:', mediaData);
           } else {
             const errorData = await mediaResponse.json();
-            console.error('Failed to upload document:', errorData);
-            console.error('Response status:', mediaResponse.status);
-            console.error('Response statusText:', mediaResponse.statusText);
             setError(`Failed to upload document: ${errorData.message || errorData.code || 'Unknown error'}`);
             setLoading(false);
             return;
@@ -440,11 +487,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       
       const method = isEditing ? 'PUT' : 'POST';
       
-      console.log('API URL:', process.env.REACT_APP_API_URL);
-      console.log('Full URL:', url);
-      console.log('Method:', method);
-      console.log('Token:', token ? `${token.substring(0, 20)}...` : 'No token');
-      console.log('Borrower Data:', borrowerData);
 
       const response = await fetch(url, {
         method: method,
@@ -456,11 +498,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         mode: 'cors'
       });
 
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-      
       const data = await response.json();
-      console.log('Borrower profile response:', data);
 
       if (response.ok && data.id) {
         const documentInfo = documentMediaId ? ' Document uploaded successfully.' : '';
@@ -486,12 +524,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       }
       
     } catch (err) {
-      console.error('Error creating borrower profile:', err);
-      console.error('Error details:', {
-        message: err.message,
-        name: err.name,
-        stack: err.stack
-      });
       
       if (err.message.includes('CORS') || err.message.includes('Access-Control-Allow-Origin')) {
         setError('CORS error: Please check if the WordPress backend allows requests from this domain.');
@@ -633,12 +665,15 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                   value={formData.email_address}
                   onChange={handleInputChange}
                   required
-                  disabled={loading}
+                  disabled={loading || isEditing}
                   placeholder="Enter borrower's email address"
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
                 />
                 <p className="text-sm text-gray-500 mt-2">
-                Enter the borrower's email address. This will be used to create their WordPress user account and login credentials.
+                  {isEditing 
+                    ? "Email address cannot be changed after registration as it's linked to the user account."
+                    : "Enter the borrower's email address. This will be used to create their WordPress user account and login credentials. Cannot be changed after registration."
+                  }
                 </p>
             </div>
 
