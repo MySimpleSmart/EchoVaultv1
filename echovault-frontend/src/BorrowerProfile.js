@@ -651,10 +651,9 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       console.log('Request Data Sent:', borrowerData);
 
       if (response.ok && data.id) {
-        const documentInfo = documentMediaId ? ' Document uploaded successfully.' : '';
         const successMessage = isEditing 
-          ? `Borrower profile updated successfully!${documentInfo}`
-          : `Borrower profile created successfully! New user account created for ${formData.email_address} with temporary password: TempPassword123!${documentInfo}`;
+          ? `Borrower profile updated successfully!`
+          : `Borrower profile created successfully! New user account created for ${formData.email_address} with temporary password: TempPassword123!`;
         
         showSuccess(successMessage);
         

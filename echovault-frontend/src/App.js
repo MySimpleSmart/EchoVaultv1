@@ -3,6 +3,12 @@ import Login from './Login';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import Dashboard from './Dashboard';
+import Loans from './Loans';
+import LoanProducts from './LoanProducts';
+import LoanContract from './LoanContract';
+import BankAccounts from './BankAccounts';
+import Reports from './Reports';
+import Settings from './Settings';
 import './App.css';
 import './styles.css';
 
@@ -134,17 +140,49 @@ function App() {
         />
         <div className="flex-1 flex flex-col">
           <Header onLogout={handleLogout} user={user} />
-          <Dashboard
-            currentView={currentView}
-            borrowers={borrowers}
-            selectedBorrower={selectedBorrower}
-            onSelectBorrower={handleSelectBorrower}
-            onCreateNew={handleCreateNew}
-            onEdit={handleEdit}
-            onBack={handleBack}
-            loading={loading}
-            error={error}
-          />
+          {currentView === 'loans' && (
+            <div className="p-6">
+              <Loans />
+            </div>
+          )}
+          {currentView === 'loan-products' && (
+            <div className="p-6">
+              <LoanProducts />
+            </div>
+          )}
+          {currentView === 'loan-contract' && (
+            <div className="p-6">
+              <LoanContract />
+            </div>
+          )}
+          {currentView === 'bank-accounts' && (
+            <div className="p-6">
+              <BankAccounts />
+            </div>
+          )}
+          {currentView === 'reports' && (
+            <div className="p-6">
+              <Reports />
+            </div>
+          )}
+          {currentView === 'settings' && (
+            <div className="p-6">
+              <Settings />
+            </div>
+          )}
+          {(currentView === 'dashboard' || currentView === 'borrowers' || currentView === 'create-borrower' || currentView === 'borrower-detail' || currentView === 'edit-borrower') && (
+            <Dashboard
+              currentView={currentView}
+              borrowers={borrowers}
+              selectedBorrower={selectedBorrower}
+              onSelectBorrower={handleSelectBorrower}
+              onCreateNew={handleCreateNew}
+              onEdit={handleEdit}
+              onBack={handleBack}
+              loading={loading}
+              error={error}
+            />
+          )}
         </div>
       </div>
     </div>
