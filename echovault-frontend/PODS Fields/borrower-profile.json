@@ -12,6 +12,7 @@
       "supports_title": true,
       "fields": [
         {"name": "borrower_id", "label": "Borrower ID", "type": "text", "required": true},
+        {"name": "avatar", "label": "Avatar", "type": "text"},
         {"name": "first_name", "label": "First Name", "type": "text", "required": true},
         {"name": "last_name", "label": "Last Name", "type": "text", "required": true},
         {"name": "email_address", "label": "Email Address", "type": "text", "required": true},
@@ -20,6 +21,7 @@
         {"name": "registration_number", "label": "Registration Number", "type": "text"},
         {"name": "home_address", "label": "Home Address", "type": "paragraph"},
         {"name": "document_type", "label": "Document Type", "type": "text"},
+        {"name": "document_number", "label": "Document Number", "type": "text"},
         {"name": "document_upload", "label": "Document Upload", "type": "file"},
         {"name": "social_link_1", "label": "Social Link 1", "type": "text"},
         {"name": "social_link_2", "label": "Social Link 2", "type": "text"},

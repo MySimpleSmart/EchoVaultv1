@@ -16,6 +16,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
     home_address: '',
     // Personal Document Fields
     document_type: '',
+    document_number: '',
     document_upload: null,
     // Social Links
     social_link_1: '',
@@ -75,6 +76,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         registration_number: editingBorrower.registration_number || '',
         home_address: editingBorrower.home_address || '',
         document_type: editingBorrower.document_type || '',
+        document_number: editingBorrower.document_number || '',
         document_upload: null, // Don't pre-populate file upload
         // Social Links
         social_link_1: editingBorrower.social_link_1 || '',
@@ -121,6 +123,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       }
     }
   }, [isEditing, editingBorrower]);
+
 
   const fetchMediaDetails = async (mediaId) => {
     try {
@@ -603,22 +606,25 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         'marital_status', 'family_relationship', 'family_member_full_name', 
         'family_member_phone', 'family_member_email',
         'bank_name', 'account_name', 'bsb_number', 'account_number',
-        'visa_type', 'visa_expiry_date', 'document_type'
+        'visa_type', 'visa_expiry_date', 'document_type', 'document_number'
       ];
 
       fieldsToCheck.forEach(field => {
         const value = formData[field];
-        // Only include the field if it has a meaningful value
-        if (value !== null && value !== undefined && value !== '' && value.toString().trim() !== '') {
+        // Always include the field to ensure it gets updated (including empty values)
+        if (value !== null && value !== undefined) {
           // Handle numeric fields
           if (field === 'monthly_income_aud') {
-            borrowerData[field] = parseFloat(value) || 0;
+            borrowerData[field] = value === '' ? '' : (parseFloat(value) || 0);
           } else {
+            // Send the actual value (including empty strings to clear fields)
             borrowerData[field] = value;
           }
         }
-        // Don't send empty fields at all - let the backend handle defaults
       });
+      
+      // Debug final borrower data
+      console.log('Final borrower data before API call:', borrowerData);
 
       // Add document upload if available
       if (documentMediaId) {
@@ -1042,6 +1048,22 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                 <option value="National ID">National ID</option>
                 <option value="Driver License (AUD)">Driver License (AUD)</option>
               </select>
+            </div>
+
+            <div className="mt-6">
+              <label htmlFor="document_number" className="block text-sm font-medium text-gray-700 mb-2">
+                Document Number
+              </label>
+              <input
+                type="text"
+                id="document_number"
+                name="document_number"
+                value={formData.document_number}
+                onChange={handleInputChange}
+                disabled={loading}
+                placeholder="Enter document number"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
+              />
             </div>
 
             {formData.document_type && (

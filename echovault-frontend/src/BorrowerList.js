@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getVerificationStatus, getVerificationStats } from './utils/verification';
 import MissingFieldsModal from './components/MissingFieldsModal';
+import { getAvatarByBorrowerId } from './utils/avatars';
 
 const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
   const [borrowers, setBorrowers] = useState([]);
@@ -161,6 +162,16 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                     const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase();
                     const verificationStatus = getVerificationStatus(borrower);
                     
+                    // Debug avatar data
+                    console.log('Borrower avatar data:', {
+                      id: borrower.id,
+                      name: fullName,
+                      avatar: borrower.avatar,
+                      metaAvatar: borrower.meta?.avatar,
+                      allFields: Object.keys(borrower),
+                      metaFields: borrower.meta ? Object.keys(borrower.meta) : 'No meta'
+                    });
+                    
                     return (
                       <tr 
                         key={borrower.id}
@@ -169,7 +180,18 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                            <img
+                              src={getAvatarByBorrowerId(borrower.id)}
+                              alt={fullName}
+                              className="w-10 h-10 rounded-full object-cover"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'flex';
+                              }}
+                            />
+                            <div 
+                              className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm hidden"
+                            >
                               {initials}
                             </div>
                             <div className="ml-4">

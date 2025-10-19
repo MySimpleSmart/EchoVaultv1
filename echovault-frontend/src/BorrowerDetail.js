@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getVerificationStatus } from './utils/verification';
 import MissingFieldsModal from './components/MissingFieldsModal';
 import DocumentViewer from './components/DocumentViewer';
+import { getAvatarByBorrowerId } from './utils/avatars';
 
 const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
   const [mediaDetails, setMediaDetails] = useState(null);
@@ -112,7 +113,18 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
               </svg>
             </button>
             <div className="flex items-center">
-              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xl mr-4">
+              <img
+                src={getAvatarByBorrowerId(borrower.id)}
+                alt={fullName}
+                className="w-16 h-16 rounded-full object-cover mr-4"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'flex';
+                }}
+              />
+              <div 
+                className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xl mr-4 hidden"
+              >
                 {initials}
               </div>
               <div>
@@ -373,6 +385,11 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Document Type</label>
                 <p className="text-gray-900 font-medium">{Array.isArray(borrower.document_type) ? borrower.document_type.join(', ') : borrower.document_type || 'Not provided'}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Document Number</label>
+                <p className="text-gray-900 font-medium">{borrower.document_number || borrower.meta?.document_number || 'Not provided'}</p>
               </div>
               
               <div>
