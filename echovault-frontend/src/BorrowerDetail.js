@@ -1,22 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { getVerificationStatus } from './utils/verification';
 import MissingFieldsModal from './components/MissingFieldsModal';
+import DocumentViewer from './components/DocumentViewer';
 
 const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
   const [mediaDetails, setMediaDetails] = useState(null);
   const [loadingMedia, setLoadingMedia] = useState(false);
   const [activeTab, setActiveTab] = useState('general');
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
+  const [showDocumentViewer, setShowDocumentViewer] = useState(false);
 
   // Fetch media details if document_upload is a media ID
   useEffect(() => {
     const fetchMediaDetails = async () => {
-      if (borrower?.document_upload) {
+      // Check both document_upload field and meta.document_upload
+      const documentUpload = borrower?.document_upload || borrower?.meta?.document_upload;
+      
+      console.log('Borrower document data:', {
+        document_upload: borrower?.document_upload,
+        meta_document_upload: borrower?.meta?.document_upload,
+        resolved_document_upload: documentUpload,
+        full_borrower_data: borrower
+      });
+      
+      if (documentUpload) {
         
-        if (typeof borrower.document_upload === 'number' || 
-            (typeof borrower.document_upload === 'string' && !isNaN(borrower.document_upload))) {
+        if (typeof documentUpload === 'number' || 
+            (typeof documentUpload === 'string' && !isNaN(documentUpload))) {
           // It's a media ID (number or string number)
-          const mediaId = parseInt(borrower.document_upload);
+          const mediaId = parseInt(documentUpload);
           setLoadingMedia(true);
           try {
             const token = localStorage.getItem('jwt_token');
@@ -38,10 +50,10 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
           } finally {
             setLoadingMedia(false);
           }
-        } else if (typeof borrower.document_upload === 'object' && borrower.document_upload.id) {
+        } else if (typeof documentUpload === 'object' && documentUpload.id) {
           // If it's already a media object with an ID
-          setMediaDetails(borrower.document_upload);
-        } else if (typeof borrower.document_upload === 'object' && borrower.document_upload.name) {
+          setMediaDetails(documentUpload);
+        } else if (typeof documentUpload === 'object' && documentUpload.name) {
           // If it's a File object, we can't display it properly
           console.error('Document upload is a File object, not a media ID');
           setMediaDetails(null);
@@ -50,7 +62,7 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
     };
 
     fetchMediaDetails();
-  }, [borrower?.document_upload]);
+  }, [borrower?.document_upload, borrower?.meta?.document_upload]);
 
 
   if (!borrower) {
@@ -370,7 +382,7 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                     <div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-200 border-t-blue-600 mr-3"></div>
                     <p className="text-sm text-blue-700 font-medium">Loading document details...</p>
                   </div>
-                ) : borrower.document_upload && borrower.document_upload !== false && borrower.document_upload !== '' ? (
+                ) : (borrower.document_upload || borrower.meta?.document_upload) && borrower.document_upload !== false && borrower.document_upload !== '' ? (
                   <div className="flex items-center p-4 bg-green-50 rounded-lg border border-green-200">
                     <div className="p-2 bg-green-100 rounded-lg mr-4">
                       <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -394,24 +406,59 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                       ) : (
                         // Media ID case - show proper details
                         <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            {mediaDetails?.title?.rendered || mediaDetails?.post_title || 'Document uploaded'}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {mediaDetails?.mime_type || mediaDetails?.post_mime_type || 'File uploaded to media library'}
-                          </p>
-                          {mediaDetails?.source_url && (
-                            <a 
-                              href={mediaDetails.source_url} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 underline mt-2 font-medium"
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {mediaDetails?.title?.rendered || mediaDetails?.post_title || 'Document uploaded'}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {mediaDetails?.mime_type || mediaDetails?.post_mime_type || 'File uploaded to media library'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                console.log('Eye button clicked, mediaDetails:', mediaDetails);
+                                console.log('Borrower data:', borrower);
+                                console.log('Borrower document_upload:', borrower?.document_upload);
+                                console.log('Document upload type:', typeof borrower?.document_upload);
+                                setShowDocumentViewer(true);
+                              }}
+                              className="ml-4 p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
+                              title="View Document"
                             >
-                              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                               </svg>
-                              View/Download Document
-                            </a>
+                            </button>
+                          </div>
+                          {mediaDetails?.source_url && (
+                            <div className="mt-2 flex space-x-2">
+                              <a 
+                                href={mediaDetails.source_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 underline font-medium"
+                              >
+                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                                Open in New Tab
+                              </a>
+                              <a 
+                                href={mediaDetails.source_url}
+                                download
+                                className="inline-flex items-center text-xs text-green-600 hover:text-green-800 underline font-medium"
+                              >
+                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Download
+                              </a>
+                            </div>
                           )}
                         </div>
                       )}
@@ -695,6 +742,17 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
         onClose={() => setShowMissingFieldsModal(false)}
         missingFields={verificationStatus.missingFields}
         verificationStatus={verificationStatus}
+      />
+
+      {/* Document Viewer Modal */}
+      <DocumentViewer
+        isOpen={showDocumentViewer}
+        onClose={() => setShowDocumentViewer(false)}
+        documentData={mediaDetails || (borrower?.document_upload ? {
+          ID: typeof borrower.document_upload === 'number' ? borrower.document_upload :
+              typeof borrower.document_upload === 'string' ? borrower.document_upload :
+              borrower.document_upload?.ID || borrower.document_upload?.id || borrower.document_upload
+        } : null)}
       />
     </div>
   );

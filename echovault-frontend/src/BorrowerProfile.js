@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './BorrowerProfile.css';
 import ConfirmationModal from './components/ConfirmationModal';
 import SuccessMessage from './components/SuccessMessage';
+import DocumentViewer from './components/DocumentViewer';
 
 const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrower, isEditing }) => {
   const [formData, setFormData] = useState({
@@ -57,6 +58,10 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [documentUploaded, setDocumentUploaded] = useState(false);
 
   useEffect(() => {
     // If editing, populate form with existing data
@@ -104,6 +109,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       
       // Store existing document info for display
       if (editingBorrower.document_upload) {
+        console.log('Setting existingDocument to:', editingBorrower.document_upload);
         setExistingDocument(editingBorrower.document_upload);
         
         // Fetch media details if it's a media ID
@@ -135,13 +141,56 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
     }
   };
 
-  const handleInputChange = (e) => {
+  const handleInputChange = async (e) => {
     const { name, value, type, files } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'file' ? files[0] : value
-    }));
-    setHasUnsavedChanges(true);
+    
+    if (type === 'file' && name === 'document_upload' && files[0]) {
+      // Upload file IMMEDIATELY when selected
+      const file = files[0];
+      
+      // NO FILE VALIDATION - ACCEPT ALL FILES
+      console.log('File selected:', {
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size
+      });
+      
+      // Store file TEMPORARILY - DON'T upload yet
+      console.log('File stored temporarily:', file.name);
+      
+      // Store file temporarily in formData
+      setFormData(prev => ({
+        ...prev,
+        [name]: file // Store the file object temporarily
+      }));
+      
+      // Create a temporary preview object
+      const tempFilePreview = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        isTemporary: true,
+        file: file // Store the actual file object
+      };
+      
+      // Store temporary file preview
+      setFormData(prev => ({
+        ...prev,
+        tempUploadedFile: tempFilePreview
+      }));
+      
+      setDocumentUploaded(true);
+      setSuccess('File selected! Click Update to upload and save to borrower profile.');
+      setTimeout(() => setSuccess(''), 3000);
+      setHasUnsavedChanges(true);
+    } else {
+      // Handle regular input changes
+      setFormData(prev => ({
+        ...prev,
+        [name]: type === 'file' ? files[0] : value
+      }));
+      setHasUnsavedChanges(true);
+    }
 
     // Don't check email automatically - let user type freely
   };
@@ -164,6 +213,18 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
     setSuccessMessage(message);
     setShowSuccessMessage(true);
     setHasUnsavedChanges(false);
+  };
+
+  const handleDeleteDocument = () => {
+    setFormData(prev => ({
+      ...prev,
+      document_upload: null
+    }));
+    setExistingMediaDetails(null);
+    setDocumentUploaded(false);
+    setSuccess('');
+    setError('');
+    setHasUnsavedChanges(true);
   };
 
   const checkEmailExists = async (email) => {
@@ -269,21 +330,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         return;
       }
 
-      // Validate file upload
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf', 'image/gif'];
-      const maxSize = 5 * 1024 * 1024; // 5MB
-
-      if (!allowedTypes.includes(formData.document_upload.type)) {
-        setError('Please upload a valid file type (JPEG, PNG, PDF, or GIF).');
-        setLoading(false);
-        return;
-      }
-
-      if (formData.document_upload.size > maxSize) {
-        setError('File size must be less than 5MB.');
-        setLoading(false);
-        return;
-      }
+      // NO FILE VALIDATION - ACCEPT ALL FILES
+      console.log('File validation removed - accepting all file types');
     }
 
     // Document upload is optional for both new and existing borrowers
@@ -390,16 +438,26 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         userId = newUser.id;
       }
 
-      // Handle file upload first - upload to media library
+      // Handle document upload - upload temporary file if exists
       let documentMediaId = null;
-      if (formData.document_upload) {
-        // New file uploaded
+      
+      // Check if we have a temporary file to upload
+      if (formData.tempUploadedFile && formData.tempUploadedFile.isTemporary) {
+        console.log('Uploading temporary file:', formData.tempUploadedFile.name);
+        
         try {
+          setUploadingDocument(true);
+          setUploadProgress(0);
+          
           const mediaFormData = new FormData();
-          mediaFormData.append('file', formData.document_upload);
-          mediaFormData.append('title', `Document for ${formData.first_name} ${formData.last_name}`);
+          mediaFormData.append('file', formData.tempUploadedFile.file);
+          mediaFormData.append('title', `Document for ${formData.first_name || 'Borrower'} ${formData.last_name || ''}`);
           mediaFormData.append('description', `Document upload for borrower profile`);
 
+          // Simulate progress
+          const progressInterval = setInterval(() => {
+            setUploadProgress(prev => Math.min(prev + 10, 90));
+          }, 200);
 
           const mediaResponse = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media`, {
             method: 'POST',
@@ -410,32 +468,53 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
             mode: 'cors'
           });
 
+          clearInterval(progressInterval);
+          setUploadProgress(100);
 
           if (mediaResponse.ok) {
             const mediaData = await mediaResponse.json();
+            console.log('Document uploaded successfully:', mediaData);
+            
+            // Use the uploaded media ID
             documentMediaId = mediaData.id;
+            
+            // Update existing media details with new upload
+            setExistingMediaDetails(mediaData);
+            
+            // Clear temporary file
+            setFormData(prev => ({
+              ...prev,
+              tempUploadedFile: null,
+              document_upload: mediaData.id
+            }));
+            
+            setSuccess('Document uploaded and saved successfully!');
           } else {
             const errorData = await mediaResponse.json();
-            setError(`Failed to upload document: ${errorData.message || errorData.code || 'Unknown error'}`);
-            setLoading(false);
-            return;
+            throw new Error(errorData.message || 'Failed to upload document');
           }
         } catch (err) {
           console.error('Error uploading document:', err);
           setError(`Failed to upload document: ${err.message}`);
-          setLoading(false);
+          setUploadingDocument(false);
+          setUploadProgress(0);
           return;
+        } finally {
+          setUploadingDocument(false);
+          setUploadProgress(0);
         }
+      } else if (formData.newUploadedMedia) {
+        // New file was uploaded - use it
+        documentMediaId = formData.newUploadedMedia.id;
+        
+        // Replace current document with new uploaded one
+        setExistingMediaDetails(formData.newUploadedMedia);
+      } else if (formData.document_upload && typeof formData.document_upload === 'number') {
+        // Existing media ID - use it
+        documentMediaId = formData.document_upload;
       } else if (isEditing && existingDocument) {
         // Keep existing document when editing
         documentMediaId = existingDocument;
-      }
-
-      // If we have a file but no media ID, the upload failed
-      if (formData.document_upload && !documentMediaId) {
-        setError('Document upload failed. Please try again.');
-        setLoading(false);
-        return;
       }
 
       // Helper function to clean empty values - only send non-empty values
@@ -504,10 +583,15 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       console.log('Generated Borrower ID:', borrowerId);
       console.log('Borrower Data being sent:', borrowerData);
 
-      // Also add borrower_id as meta data to ensure it's saved
+      // Also add borrower_id and document_upload as meta data to ensure they're saved
       borrowerData.meta = {
         borrower_id: borrowerId
       };
+      
+      // Add document upload to meta as well
+      if (documentMediaId) {
+        borrowerData.meta.document_upload = documentMediaId;
+      }
 
       // Only include fields that have actual values - don't send empty fields
       const fieldsToCheck = [
@@ -539,6 +623,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       // Add document upload if available
       if (documentMediaId) {
         borrowerData.document_upload = documentMediaId;
+        console.log('Document Media ID being sent:', documentMediaId);
       }
 
       const url = isEditing 
@@ -969,35 +1054,160 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                 {/* Show existing document if editing */}
                 {isEditing && existingDocument && (
                     <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
-                      <div className="flex items-center">
-                        <div className="p-2 bg-green-100 rounded-lg mr-3">
-                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <div className="p-2 bg-green-100 rounded-lg mr-3">
+                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900 mb-1">Current Document:</p>
+                            <p className="text-sm text-gray-600">
+                              {existingMediaDetails?.title?.rendered || existingMediaDetails?.post_title || `Document uploaded (ID: ${existingDocument})`}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {existingMediaDetails?.mime_type || existingMediaDetails?.post_mime_type || 'File uploaded to media library'}
+                            </p>
+                          </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            console.log('Eye button clicked in BorrowerProfile, existingMediaDetails:', existingMediaDetails);
+                            setShowDocumentViewer(true);
+                          }}
+                          className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
+                          title="View Document"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        </button>
+                      </div>
+                      {existingMediaDetails?.source_url && (
+                        <div className="mt-2 flex space-x-2">
+                          <a 
+                            href={existingMediaDetails.source_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 underline font-medium"
+                          >
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            Open in New Tab
+                          </a>
+                          <a 
+                            href={existingMediaDetails.source_url}
+                            download
+                            className="inline-flex items-center text-xs text-green-600 hover:text-green-800 underline font-medium"
+                          >
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Download
+                          </a>
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                {/* Upload Progress */}
+                {uploadingDocument && (
+                  <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex items-center mb-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-200 border-t-blue-600 mr-2"></div>
+                      <span className="text-sm font-medium text-blue-700">Uploading document...</span>
+                    </div>
+                    <div className="w-full bg-blue-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-blue-600 mt-1">{uploadProgress}% complete</p>
+                  </div>
+                )}
+
+
+                {/* Temporary File Display */}
+                {formData.tempUploadedFile && formData.tempUploadedFile.isTemporary && (
+                  <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start">
+                        <svg className="w-5 h-5 text-green-600 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
                         <div>
-                          <p className="text-sm font-medium text-gray-900 mb-1">Current Document:</p>
-                    <p className="text-sm text-gray-600">
-                      {existingMediaDetails?.title?.rendered || existingMediaDetails?.post_title || `Document uploaded (ID: ${existingDocument})`}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {existingMediaDetails?.mime_type || existingMediaDetails?.post_mime_type || 'File uploaded to media library'}
-                    </p>
-                    {existingMediaDetails?.source_url && (
-                      <a 
-                        href={existingMediaDetails.source_url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                              className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 underline mt-2 font-medium"
-                      >
-                              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                              </svg>
-                        View Current Document
-                      </a>
-                    )}
+                          <span className="text-sm font-medium text-green-700">File selected! Click Update to upload and save.</span>
+                          <div className="mt-1 text-xs text-gray-600">
+                            <p><strong>Name:</strong> {formData.tempUploadedFile.name}</p>
+                            <p><strong>Type:</strong> {formData.tempUploadedFile.type}</p>
+                            <p><strong>Size:</strong> {(formData.tempUploadedFile.size / 1024).toFixed(1)} KB</p>
+                          </div>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({ ...prev, tempUploadedFile: null, document_upload: null }));
+                          setSuccess('');
+                        }}
+                        className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                        title="Remove Selected File"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload Success with File Details */}
+                {documentUploaded && existingMediaDetails && existingMediaDetails.isTemporary && (
+                  <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start">
+                        <svg className="w-5 h-5 text-green-600 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div>
+                          <span className="text-sm font-medium text-green-700">File uploaded successfully! Click Update to save to borrower profile.</span>
+                          <div className="mt-1 text-xs text-gray-600">
+                            <p><strong>Name:</strong> {existingMediaDetails.title?.rendered || existingMediaDetails.post_title || 'Document'}</p>
+                            <p><strong>Type:</strong> {existingMediaDetails.mime_type || 'Unknown'}</p>
+                            <p><strong>Size:</strong> {existingMediaDetails.media_details?.filesize ? `${(existingMediaDetails.media_details.filesize / 1024).toFixed(1)} KB` : 'Unknown'}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowDocumentViewer(true)}
+                          className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
+                          title="View Document"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteDocument}
+                          className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                          title="Delete Document"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
                 
@@ -1008,7 +1218,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                   name="document_upload"
                   onChange={handleInputChange}
                   disabled={loading}
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                  accept=".pdf,.jpg,.jpeg,.png,.gif"
                       className="hidden"
                     />
                     <label htmlFor="document_upload" className="cursor-pointer">
@@ -1513,6 +1723,13 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         type="success"
         autoClose={true}
         duration={5000}
+      />
+
+      {/* Document Viewer Modal */}
+      <DocumentViewer
+        isOpen={showDocumentViewer}
+        onClose={() => setShowDocumentViewer(false)}
+        documentData={existingMediaDetails}
       />
     </>
   );
