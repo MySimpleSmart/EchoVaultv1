@@ -11,39 +11,38 @@
       "menu_icon": "dashicons-id",
       "supports_title": true,
       "fields": [
-        {"name": "full_name", "label": "Full Name", "type": "text", "required": true},
-        {"name": "national_id", "label": "National ID", "type": "text"},
+        {"name": "borrower_id", "label": "Borrower ID", "type": "text", "required": true},
+        {"name": "first_name", "label": "First Name", "type": "text", "required": true},
+        {"name": "last_name", "label": "Last Name", "type": "text", "required": true},
+        {"name": "email_address", "label": "Email Address", "type": "text", "required": true},
         {"name": "date_of_birth", "label": "Date of Birth", "type": "date"},
-        {
-          "name": "gender",
-          "label": "Gender",
-          "type": "pick",
-          "pick_format_type": "single",
-          "pick_object": "custom-simple",
-          "pick_custom": {"male": "Male", "female": "Female", "other": "Other"}
-        },
-        {"name": "phone", "label": "Phone Number", "type": "text"},
-        {"name": "email", "label": "Email Address", "type": "text"},
-        {"name": "address", "label": "Address", "type": "paragraph"},
-        {"name": "city", "label": "City / Suburb", "type": "text"},
-        {
-          "name": "employment_status",
-          "label": "Employment Status",
-          "type": "pick",
-          "pick_format_type": "single",
-          "pick_object": "custom-simple",
-          "pick_custom": {
-            "full_time": "Full-time",
-            "part_time": "Part-time",
-            "self_employed": "Self-employed",
-            "unemployed": "Unemployed"
-          }
-        },
-        {"name": "monthly_income", "label": "Monthly Income", "type": "number"},
+        {"name": "mobile_number", "label": "Mobile Number", "type": "text"},
+        {"name": "registration_number", "label": "Registration Number", "type": "text"},
+        {"name": "home_address", "label": "Home Address", "type": "paragraph"},
+        {"name": "document_type", "label": "Document Type", "type": "text"},
+        {"name": "document_upload", "label": "Document Upload", "type": "file"},
+        {"name": "social_link_1", "label": "Social Link 1", "type": "text"},
+        {"name": "social_link_2", "label": "Social Link 2", "type": "text"},
+        {"name": "employment_status", "label": "Employment Status", "type": "text"},
+        {"name": "work_rights", "label": "Work Rights", "type": "text"},
         {"name": "employer_name", "label": "Employer Name", "type": "text"},
+        {"name": "job_title", "label": "Job Title", "type": "text"},
+        {"name": "monthly_income_aud", "label": "Monthly Income (AUD)", "type": "number"},
+        {"name": "employment_start_date", "label": "Employment Start Date", "type": "date"},
         {"name": "employer_phone", "label": "Employer Phone", "type": "text"},
-        {"name": "emergency_contact_name", "label": "Emergency Contact Name", "type": "text"},
-        {"name": "emergency_contact_phone", "label": "Emergency Contact Phone", "type": "text"},
+        {"name": "employer_email", "label": "Employer Email", "type": "text"},
+        {"name": "employer_address", "label": "Employer Address", "type": "paragraph"},
+        {"name": "marital_status", "label": "Marital Status", "type": "text"},
+        {"name": "family_relationship", "label": "Family Relationship", "type": "text"},
+        {"name": "family_member_full_name", "label": "Family Member Full Name", "type": "text"},
+        {"name": "family_member_phone", "label": "Family Member Phone", "type": "text"},
+        {"name": "family_member_email", "label": "Family Member Email", "type": "text"},
+        {"name": "bank_name", "label": "Bank Name", "type": "text"},
+        {"name": "account_name", "label": "Account Name", "type": "text"},
+        {"name": "bsb_number", "label": "BSB Number", "type": "text"},
+        {"name": "account_number", "label": "Account Number", "type": "text"},
+        {"name": "visa_type", "label": "Visa Type", "type": "text"},
+        {"name": "visa_expiry_date", "label": "Visa Expiry Date", "type": "date"},
         {
           "name": "profile_status",
           "label": "Profile Status",
@@ -55,9 +54,7 @@
             "inactive": "Inactive",
             "suspended": "Suspended"
           }
-        },
-        {"name": "profile_photo", "label": "Profile Photo", "type": "file"},
-        {"name": "documents", "label": "Documents (ID, Payslip, etc.)", "type": "file"}
+        }
       ]
     }
   ]

@@ -6,7 +6,6 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
   const [mediaDetails, setMediaDetails] = useState(null);
   const [loadingMedia, setLoadingMedia] = useState(false);
   const [activeTab, setActiveTab] = useState('general');
-  const [authorName, setAuthorName] = useState(null);
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
 
   // Fetch media details if document_upload is a media ID
@@ -53,34 +52,6 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
     fetchMediaDetails();
   }, [borrower?.document_upload]);
 
-  // Fetch author name
-  useEffect(() => {
-    const fetchAuthorName = async () => {
-      if (borrower?.author) {
-        try {
-          const token = localStorage.getItem('jwt_token');
-          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/users/${borrower.author}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            },
-            mode: 'cors'
-          });
-          
-          if (response.ok) {
-            const user = await response.json();
-            setAuthorName(user.name || user.display_name || `User ${borrower.author}`);
-          } else {
-            setAuthorName(`User ${borrower.author}`);
-          }
-        } catch (err) {
-          console.error('Error fetching author name:', err);
-          setAuthorName(`User ${borrower.author}`);
-        }
-      }
-    };
-
-    fetchAuthorName();
-  }, [borrower?.author]);
 
   if (!borrower) {
     return (
@@ -709,8 +680,10 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
               </span>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Author</label>
-              <p className="text-gray-900 font-medium">{authorName || 'Loading...'}</p>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Borrower ID</label>
+              <p className="text-gray-900 font-medium">
+                {borrower.borrower_id || borrower.meta?.borrower_id || `EV${borrower.id.toString().padStart(7, '0')}`}
+              </p>
             </div>
           </div>
         </div>

@@ -42,7 +42,9 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
     account_number: '',
     // Visa Status Fields
     visa_type: '',
-    visa_expiry_date: ''
+    visa_expiry_date: '',
+    // Borrower ID
+    borrower_id: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -95,7 +97,9 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         account_number: editingBorrower.account_number || '',
         // Visa Status Fields
         visa_type: editingBorrower.visa_type || '',
-        visa_expiry_date: editingBorrower.visa_expiry_date || ''
+        visa_expiry_date: editingBorrower.visa_expiry_date || '',
+        // Borrower ID
+        borrower_id: editingBorrower.borrower_id || ''
       });
       
       // Store existing document info for display
@@ -442,6 +446,48 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         return value;
       };
 
+      // Generate unique borrower ID for new borrowers
+      let borrowerId = formData.borrower_id;
+      if (!isEditing && !borrowerId) {
+        // Generate EV0000001 format
+        try {
+          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile?per_page=100&orderby=id&order=desc`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            mode: 'cors'
+          });
+          
+          if (response.ok) {
+            const borrowers = await response.json();
+            // Find the highest borrower_id that follows the EV pattern
+            let highestId = 0;
+            borrowers.forEach(borrower => {
+              if (borrower.borrower_id && borrower.borrower_id.startsWith('EV')) {
+                const idNumber = parseInt(borrower.borrower_id.substring(2));
+                if (!isNaN(idNumber) && idNumber > highestId) {
+                  highestId = idNumber;
+                }
+              }
+            });
+            
+            const nextId = highestId + 1;
+            borrowerId = `EV${nextId.toString().padStart(7, '0')}`;
+          } else {
+            // Fallback if API call fails
+            borrowerId = `EV${Date.now().toString().slice(-7)}`;
+          }
+        } catch (error) {
+          console.error('Error generating borrower ID:', error);
+          // Fallback if API call fails
+          borrowerId = `EV${Date.now().toString().slice(-7)}`;
+        }
+      } else if (isEditing && !borrowerId) {
+        // If editing and no borrower_id exists, generate one
+        borrowerId = `EV${editingBorrower.id.toString().padStart(7, '0')}`;
+      }
+
       // Prepare data for WordPress REST API - only include fields with values
       const borrowerData = {
         title: `${formData.first_name} ${formData.last_name}`,
@@ -450,10 +496,20 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         // Always include required fields
         first_name: formData.first_name,
         last_name: formData.last_name,
-        email_address: formData.email_address
+        email_address: formData.email_address,
+        borrower_id: borrowerId
       };
 
-      // Include ALL fields - send empty strings to clear fields that were removed
+      // Debug logging
+      console.log('Generated Borrower ID:', borrowerId);
+      console.log('Borrower Data being sent:', borrowerData);
+
+      // Also add borrower_id as meta data to ensure it's saved
+      borrowerData.meta = {
+        borrower_id: borrowerId
+      };
+
+      // Only include fields that have actual values - don't send empty fields
       const fieldsToCheck = [
         'date_of_birth', 'mobile_number', 'registration_number', 'home_address',
         'social_link_1', 'social_link_2',
@@ -468,12 +524,16 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
 
       fieldsToCheck.forEach(field => {
         const value = formData[field];
-        // Always include the field - send empty string if cleared, actual value if filled
-        if (value !== null && value !== undefined) {
-          borrowerData[field] = value;
-        } else {
-          borrowerData[field] = ''; // Send empty string to clear the field
+        // Only include the field if it has a meaningful value
+        if (value !== null && value !== undefined && value !== '' && value.toString().trim() !== '') {
+          // Handle numeric fields
+          if (field === 'monthly_income_aud') {
+            borrowerData[field] = parseFloat(value) || 0;
+          } else {
+            borrowerData[field] = value;
+          }
         }
+        // Don't send empty fields at all - let the backend handle defaults
       });
 
       // Add document upload if available
@@ -500,6 +560,11 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
 
       const data = await response.json();
 
+      // Debug logging for API response
+      console.log('API Response:', data);
+      console.log('Response Status:', response.status);
+      console.log('Request Data Sent:', borrowerData);
+
       if (response.ok && data.id) {
         const documentInfo = documentMediaId ? ' Document uploaded successfully.' : '';
         const successMessage = isEditing 
@@ -517,20 +582,48 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
           onProfileComplete(profileWithId);
         }
       } else {
-        const errorMessage = isEditing 
-          ? data.message || 'Failed to update borrower profile. Please try again.'
-          : data.message || 'Failed to create borrower profile. Please try again.';
+        // More detailed error handling
+        let errorMessage = '';
+        if (data.message) {
+          errorMessage = data.message;
+        } else if (data.code) {
+          errorMessage = `Error: ${data.code}`;
+        } else if (response.status === 400) {
+          errorMessage = 'Invalid data provided. Please check your input and try again.';
+        } else if (response.status === 401) {
+          errorMessage = 'Authentication failed. Please login again.';
+        } else if (response.status === 403) {
+          errorMessage = 'You do not have permission to perform this action.';
+        } else if (response.status === 500) {
+          errorMessage = 'Server error. Please try again later.';
+        } else {
+          errorMessage = isEditing 
+            ? 'Failed to update borrower profile. Please try again.'
+            : 'Failed to create borrower profile. Please try again.';
+        }
+        
+        console.error('API Error Details:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: data,
+          url: url,
+          method: method
+        });
+        
         setError(errorMessage);
       }
       
     } catch (err) {
+      console.error('Network/Fetch Error:', err);
       
       if (err.message.includes('CORS') || err.message.includes('Access-Control-Allow-Origin')) {
         setError('CORS error: Please check if the WordPress backend allows requests from this domain.');
       } else if (err.message.includes('Failed to fetch')) {
-        setError('Network error: Unable to connect to the server. Please check your internet connection.');
+        setError('Network error: Unable to connect to the server. Please check your internet connection and try again.');
+      } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        setError('Connection error: Unable to reach the server. Please check your internet connection.');
       } else {
-        setError(`Error: ${err.message}`);
+        setError(`Unexpected error: ${err.message}`);
       }
     } finally {
       setLoading(false);

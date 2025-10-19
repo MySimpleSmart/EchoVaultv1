@@ -173,7 +173,9 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                             </div>
                             <div className="ml-4">
                               <div className="text-sm font-medium text-gray-900">{fullName}</div>
-                              <div className="text-sm text-gray-500">ID: {borrower.id}</div>
+                              <div className="text-sm text-gray-500">
+                                ID: {borrower.borrower_id || borrower.meta?.borrower_id || `EV${borrower.id.toString().padStart(7, '0')}`}
+                              </div>
                             </div>
                           </div>
                         </td>
