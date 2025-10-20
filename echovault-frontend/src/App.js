@@ -309,7 +309,7 @@ function App() {
           )}
           {currentView === 'bank-accounts' && (
             <div className="p-6">
-              <BankAccounts />
+              <BankAccounts token={token} setCurrentView={setCurrentView} />
             </div>
           )}
           {currentView === 'notes' && (
