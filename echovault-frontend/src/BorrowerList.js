@@ -162,15 +162,6 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                     const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase();
                     const verificationStatus = getVerificationStatus(borrower);
                     
-                    // Debug avatar data
-                    console.log('Borrower avatar data:', {
-                      id: borrower.id,
-                      name: fullName,
-                      avatar: borrower.avatar,
-                      metaAvatar: borrower.meta?.avatar,
-                      allFields: Object.keys(borrower),
-                      metaFields: borrower.meta ? Object.keys(borrower.meta) : 'No meta'
-                    });
                     
                     return (
                       <tr 

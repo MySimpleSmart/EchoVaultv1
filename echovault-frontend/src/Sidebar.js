@@ -16,10 +16,11 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
     <div className="w-64 bg-white shadow-sm border-r border-gray-200 min-h-screen">
       <div className="p-6">
         <div className="flex items-center mb-8">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
-            <span className="text-white font-bold text-sm">EV</span>
-          </div>
-          <h1 className="text-xl font-semibold text-gray-900">EchoVault</h1>
+          <img 
+            src="/Logo/echologo.png" 
+            alt="EchoVault" 
+            className="h-8 w-auto"
+          />
         </div>
 
         <nav className="space-y-2">

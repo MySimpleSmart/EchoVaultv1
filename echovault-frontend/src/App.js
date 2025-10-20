@@ -9,6 +9,7 @@ import LoanContract from './LoanContract';
 import BankAccounts from './BankAccounts';
 import Reports from './Reports';
 import Settings from './Settings';
+import AdminProfile from './AdminProfile';
 import './App.css';
 import './styles.css';
 
@@ -56,6 +57,10 @@ function App() {
     setCurrentView('dashboard');
     setSelectedBorrower(null);
     setBorrowers([]);
+  };
+
+  const handleNavigateToProfile = () => {
+    setCurrentView('admin-profile');
   };
 
   const handleCreateNew = () => {
@@ -120,7 +125,7 @@ function App() {
 
   // Show login form
   if (!isLoggedIn) {
-    return <Login onLogin={handleLogin} />;
+    return <Login onLoginSuccess={handleLogin} />;
   }
 
   // Show main dashboard layout
@@ -139,7 +144,7 @@ function App() {
           onCreateNew={handleCreateNew}
         />
         <div className="flex-1 flex flex-col">
-          <Header onLogout={handleLogout} user={user} />
+          <Header onLogout={handleLogout} user={user} onNavigateToProfile={handleNavigateToProfile} />
           {currentView === 'loans' && (
             <div className="p-6">
               <Loans />
@@ -147,7 +152,7 @@ function App() {
           )}
           {currentView === 'loan-products' && (
             <div className="p-6">
-              <LoanProducts />
+              <LoanProducts token={token} />
             </div>
           )}
           {currentView === 'loan-contract' && (
@@ -169,6 +174,9 @@ function App() {
             <div className="p-6">
               <Settings />
             </div>
+          )}
+          {currentView === 'admin-profile' && (
+            <AdminProfile user={user} token={token} />
           )}
           {(currentView === 'dashboard' || currentView === 'borrowers' || currentView === 'create-borrower' || currentView === 'borrower-detail' || currentView === 'edit-borrower') && (
             <Dashboard

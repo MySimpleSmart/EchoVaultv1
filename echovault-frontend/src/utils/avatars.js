@@ -22,7 +22,6 @@ export const avatarImages = [
 export const getRandomAvatar = () => {
   const randomIndex = Math.floor(Math.random() * avatarImages.length);
   const selectedAvatar = avatarImages[randomIndex];
-  console.log('Random avatar selected:', selectedAvatar, 'from index:', randomIndex);
   return selectedAvatar;
 };
 
@@ -33,11 +32,9 @@ export const getRandomAvatar = () => {
  */
 export const getAvatarUrl = (avatarFilename) => {
   if (!avatarFilename) {
-    console.log('No avatar filename provided');
     return null;
   }
-  const url = `http://echovault.space/wp-content/uploads/2025/10/${avatarFilename}`;
-  console.log('Avatar URL generated:', url);
+  const url = `https://echovault.space/wp-content/uploads/2025/10/${avatarFilename}`;
   return url;
 };
 
@@ -48,7 +45,6 @@ export const getAvatarUrl = (avatarFilename) => {
 export const getRandomAvatarUrl = () => {
   const randomAvatar = getRandomAvatar();
   const url = getAvatarUrl(randomAvatar);
-  console.log('Random avatar URL generated:', url);
   return url;
 };
 
@@ -59,7 +55,6 @@ export const getRandomAvatarUrl = () => {
  */
 export const getAvatarByBorrowerId = (borrowerId) => {
   if (!borrowerId) {
-    console.log('No borrower ID provided');
     return null;
   }
   
@@ -68,6 +63,5 @@ export const getAvatarByBorrowerId = (borrowerId) => {
   const avatarFilename = avatarImages[avatarIndex];
   const url = getAvatarUrl(avatarFilename);
   
-  console.log('Avatar for borrower ID:', borrowerId, '->', avatarFilename, '->', url);
   return url;
 };
