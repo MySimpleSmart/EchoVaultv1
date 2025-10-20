@@ -5,17 +5,118 @@ import { getAvatarByBorrowerId } from './utils/avatars';
 
 const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
   const [borrowers, setBorrowers] = useState([]);
+  const [filteredBorrowers, setFilteredBorrowers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
   const [selectedBorrowerForModal, setSelectedBorrowerForModal] = useState(null);
+  
+  // Search and filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [documentTypeFilter, setDocumentTypeFilter] = useState('all');
+  
+  // Pagination states
+  const [perPage, setPerPage] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     fetchBorrowers();
   }, []);
 
+  // Filter and search effect
+  useEffect(() => {
+    filterBorrowers();
+    setCurrentPage(1);
+  }, [borrowers, searchTerm, statusFilter, documentTypeFilter]);
+
   // Get verification statistics for the dashboard
   const verificationStats = getVerificationStats(borrowers);
+
+  // Filter and search function
+  const filterBorrowers = () => {
+    let filtered = [...borrowers];
+
+    // Search filter
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(borrower => {
+        const fullName = borrower.first_name && borrower.last_name 
+          ? `${borrower.first_name} ${borrower.last_name}`
+          : borrower.title?.rendered || '';
+        const email = borrower.email_address || '';
+        const borrowerId = borrower.borrower_id || borrower.meta?.borrower_id || `EV${borrower.id.toString().padStart(7, '0')}`;
+        
+        return fullName.toLowerCase().includes(searchLower) ||
+               email.toLowerCase().includes(searchLower) ||
+               borrowerId.toLowerCase().includes(searchLower);
+      });
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(borrower => {
+        const verificationStatus = getVerificationStatus(borrower);
+        return verificationStatus.status.toLowerCase() === statusFilter.toLowerCase();
+      });
+    }
+
+    // Document type filter
+    if (documentTypeFilter !== 'all') {
+      filtered = filtered.filter(borrower => {
+        const docType = borrower.document_type;
+        if (!docType) return false;
+        
+        const docTypeArray = Array.isArray(docType) ? docType : [docType];
+        return docTypeArray.some(type => 
+          type.toLowerCase().includes(documentTypeFilter.toLowerCase())
+        );
+      });
+    }
+
+    setFilteredBorrowers(filtered);
+  };
+
+  // Get unique document types for filter dropdown
+  const getUniqueDocumentTypes = () => {
+    const types = new Set();
+    borrowers.forEach(borrower => {
+      if (borrower.document_type) {
+        const docTypeArray = Array.isArray(borrower.document_type) ? borrower.document_type : [borrower.document_type];
+        docTypeArray.forEach(type => types.add(type));
+      }
+    });
+    return Array.from(types).sort();
+  };
+
+  // Get unique statuses for filter dropdown
+  const getUniqueStatuses = () => {
+    const statuses = new Set();
+    borrowers.forEach(borrower => {
+      const verificationStatus = getVerificationStatus(borrower);
+      statuses.add(verificationStatus.status);
+    });
+    return Array.from(statuses).sort();
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDocumentTypeFilter('all');
+  };
+
+  // Pagination derived data
+  const totalItems = filteredBorrowers.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+  const startIdx = (currentPage - 1) * perPage;
+  const endIdx = Math.min(startIdx + perPage, totalItems);
+  const paginatedBorrowers = filteredBorrowers.slice(startIdx, endIdx);
+
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+  };
 
   const fetchBorrowers = async () => {
     try {
@@ -108,6 +209,106 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
           </div>
         </div>
 
+        {/* Search and Filter Section */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {/* Search Input */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Search Borrowers
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search by name, email, or ID..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Status Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Filter by Status
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Statuses</option>
+                {getUniqueStatuses().map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Document Type Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Filter by Document Type
+              </label>
+              <select
+                value={documentTypeFilter}
+                onChange={(e) => setDocumentTypeFilter(e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Document Types</option>
+                {getUniqueDocumentTypes().map(type => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Per Page Selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Per Page
+              </label>
+              <select
+                value={perPage}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setPerPage(val);
+                  setCurrentPage(1);
+                }}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Filter Actions */}
+          <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
+            <div className="text-sm text-gray-600">
+              Showing {startIdx + 1}-{endIdx} of {filteredBorrowers.length} borrowers
+              {(searchTerm || statusFilter !== 'all' || documentTypeFilter !== 'all') && (
+                <span className="ml-2 text-blue-600">
+                  (filtered)
+                </span>
+              )}
+            </div>
+            {(searchTerm || statusFilter !== 'all' || documentTypeFilter !== 'all') && (
+              <button
+                onClick={clearFilters}
+                className="text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        </div>
 
         {borrowers.length === 0 ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
@@ -126,6 +327,27 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
               <span>Create First Profile</span>
+            </button>
+          </div>
+        ) : filteredBorrowers.length === 0 ? (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">No borrowers found</h3>
+            <p className="text-gray-500 mb-8 max-w-md mx-auto">
+              No borrowers match your current search and filter criteria. Try adjusting your filters or search terms.
+            </p>
+            <button
+              onClick={clearFilters}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 mx-auto"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Clear Filters</span>
             </button>
           </div>
         ) : (
@@ -155,7 +377,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {borrowers.map((borrower) => {
+                  {paginatedBorrowers.map((borrower) => {
                     const fullName = borrower.first_name && borrower.last_name 
                       ? `${borrower.first_name} ${borrower.last_name}`
                       : borrower.title?.rendered || 'Unknown Borrower';
@@ -254,6 +476,42 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                   })}
                 </tbody>
               </table>
+            </div>
+            {/* Pagination Controls */}
+            <div className="px-6 py-4 flex items-center justify-between bg-white border-t border-gray-200">
+              <div className="text-sm text-gray-600">
+                Page {currentPage} of {totalPages}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => goToPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  « First
+                </button>
+                <button
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  ‹ Prev
+                </button>
+                <button
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next ›
+                </button>
+                <button
+                  onClick={() => goToPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Last »
+                </button>
+              </div>
             </div>
           </div>
         )}
