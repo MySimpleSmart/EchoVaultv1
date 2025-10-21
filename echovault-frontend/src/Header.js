@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 const Header = ({ onLogout, user, onNavigateToProfile }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const dropdownRef = useRef(null);
   const notificationRef = useRef(null);
 
@@ -43,92 +44,134 @@ const Header = ({ onLogout, user, onNavigateToProfile }) => {
     alert('Help feature coming soon!');
   };
 
+  const handleTerminalClick = () => {
+    // You can add terminal functionality here
+    alert('Terminal feature coming soon!');
+  };
+
+  const handleThemeToggle = () => {
+    setIsDarkMode(!isDarkMode);
+    // You can add theme switching functionality here
+    alert(`Switching to ${!isDarkMode ? 'Dark' : 'Light'} mode!`);
+  };
+
   return (
     <header className="bg-white shadow-sm border-b border-gray-200 h-16">
       <div className="flex items-center justify-between h-full px-6">
         <div className="flex items-center">
         </div>
         
-        <div className="flex items-center space-x-4">
-          {/* Help Icon */}
-          <button
-            onClick={handleHelpClick}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200"
-            title="Help"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-          </button>
-
-          {/* Notification Icon */}
-          <div className="relative" ref={notificationRef}>
+        <div className="flex items-center">
+          {/* Icon Group - Terminal, Help, Notifications */}
+          <div className="flex items-center space-x-2 mr-6">
+            {/* Terminal Icon */}
             <button
-              onClick={handleNotificationClick}
-              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200 relative"
-              title="Notifications"
+              onClick={handleTerminalClick}
+              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200"
+              title="Terminal"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              {/* Notification Badge */}
-              <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                3
-              </span>
             </button>
 
-            {/* Notification Dropdown */}
-            {isNotificationOpen && (
-              <div className="absolute right-0 mt-2 w-80 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
-                <div className="px-4 py-3 border-b border-gray-100">
-                  <h3 className="text-sm font-medium text-gray-900">Notifications</h3>
-                </div>
-                <div className="max-h-64 overflow-y-auto">
-                  <div className="px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
-                    <div className="flex items-start space-x-3">
-                      <div className="flex-shrink-0">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+            {/* Help Icon */}
+            <button
+              onClick={handleHelpClick}
+              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200"
+              title="Help"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </button>
+
+            {/* Notification Icon */}
+            <div className="relative" ref={notificationRef}>
+              <button
+                onClick={handleNotificationClick}
+                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200 relative"
+                title="Notifications"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                {/* Notification Badge */}
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-red-500 rounded-full"></span>
+              </button>
+
+              {/* Notification Dropdown */}
+              {isNotificationOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <h3 className="text-sm font-medium text-gray-900">Notifications</h3>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    <div className="px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900">New loan application received</p>
+                          <p className="text-xs text-gray-500 mt-1">John Doe submitted a loan application 2 hours ago</p>
+                          <p className="text-xs text-gray-400 mt-1">2 hours ago</p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900">New loan application received</p>
-                        <p className="text-xs text-gray-500 mt-1">John Doe submitted a loan application 2 hours ago</p>
-                        <p className="text-xs text-gray-400 mt-1">2 hours ago</p>
+                    </div>
+                    <div className="px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900">Payment received</p>
+                          <p className="text-xs text-gray-500 mt-1">Jane Smith made a payment of $500</p>
+                          <p className="text-xs text-gray-400 mt-1">4 hours ago</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-4 py-3 hover:bg-gray-50">
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2"></div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900">Document verification pending</p>
+                          <p className="text-xs text-gray-500 mt-1">3 documents need verification</p>
+                          <p className="text-xs text-gray-400 mt-1">1 day ago</p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                  <div className="px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
-                    <div className="flex items-start space-x-3">
-                      <div className="flex-shrink-0">
-                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900">Payment received</p>
-                        <p className="text-xs text-gray-500 mt-1">Jane Smith made a payment of $500</p>
-                        <p className="text-xs text-gray-400 mt-1">4 hours ago</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="px-4 py-3 hover:bg-gray-50">
-                    <div className="flex items-start space-x-3">
-                      <div className="flex-shrink-0">
-                        <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2"></div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900">Document verification pending</p>
-                        <p className="text-xs text-gray-500 mt-1">3 documents need verification</p>
-                        <p className="text-xs text-gray-400 mt-1">1 day ago</p>
-                      </div>
-                    </div>
+                  <div className="px-4 py-2 border-t border-gray-100">
+                    <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                      View all notifications
+                    </button>
                   </div>
                 </div>
-                <div className="px-4 py-2 border-t border-gray-100">
-                  <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                    View all notifications
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+
+          {/* Theme Toggle */}
+          <button
+            onClick={handleThemeToggle}
+            className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200 mr-4"
+            title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          >
+            {isDarkMode ? (
+              // Sun icon for light mode
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ) : (
+              // Moon icon for dark mode
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            )}
+          </button>
 
           {/* Profile Dropdown */}
           <div className="relative" ref={dropdownRef}>
