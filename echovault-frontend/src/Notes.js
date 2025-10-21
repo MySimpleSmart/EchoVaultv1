@@ -36,6 +36,12 @@ const Notes = ({ token }) => {
   const [filterType, setFilterType] = useState('All');
   const [currentPage, setCurrentPage] = useState(1);
   const [notesPerPage, setNotesPerPage] = useState(50);
+  
+  // Mention functionality
+  const [borrowers, setBorrowers] = useState([]);
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+  const [mentionSearchTerm, setMentionSearchTerm] = useState('');
+  const [mentionPosition, setMentionPosition] = useState(0);
 
   const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
 
@@ -47,6 +53,28 @@ const Notes = ({ token }) => {
     'System',
     'Other'
   ];
+
+  // Fetch borrowers for mentions
+  const fetchBorrowers = async () => {
+    if (!token) return;
+    
+    try {
+      const response = await fetch(`${apiBase}/wp/v2/borrower-profile?per_page=100`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setBorrowers(data || []);
+      }
+    } catch (err) {
+      console.error('Error fetching borrowers:', err);
+    }
+  };
 
   // Fetch notes
   const fetchNotes = async () => {
@@ -100,6 +128,7 @@ const Notes = ({ token }) => {
 
   useEffect(() => {
     fetchNotes();
+    fetchBorrowers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -322,7 +351,7 @@ const Notes = ({ token }) => {
       };
 
       // Try different possible endpoint names for creating notes
-      const possibleEndpoints = ['notes', 'note-system', 'note'];
+      const possibleEndpoints = ['notes', 'note-system', 'note', 'posts', 'note_system'];
       let response = null;
       let success = false;
 
@@ -343,7 +372,8 @@ const Notes = ({ token }) => {
             console.log(`Success creating note with endpoint: ${endpoint}`);
             break;
           } else {
-            console.log(`Failed creating note with endpoint ${endpoint}: ${response.status} ${response.statusText}`);
+            const errorText = await response.text();
+            console.log(`Failed creating note with endpoint ${endpoint}: ${response.status} ${response.statusText} - ${errorText}`);
           }
         } catch (endpointErr) {
           console.log(`Error creating note with endpoint ${endpoint}:`, endpointErr);
@@ -430,6 +460,65 @@ const Notes = ({ token }) => {
     setCurrentPage(page);
   };
 
+  // Mention functionality
+  const handleTextareaChange = (e, isEdit = false) => {
+    const value = e.target.value;
+    const cursorPosition = e.target.selectionStart;
+    
+    // Check for @ mention
+    const textBeforeCursor = value.substring(0, cursorPosition);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+    
+    if (lastAtIndex !== -1) {
+      const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+      // Check if there's no space after @ (meaning we're still typing the mention)
+      if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+        setMentionSearchTerm(textAfterAt);
+        setMentionPosition(lastAtIndex);
+        setShowMentionDropdown(true);
+      } else {
+        setShowMentionDropdown(false);
+      }
+    } else {
+      setShowMentionDropdown(false);
+    }
+    
+    // Update the appropriate form
+    if (isEdit) {
+      setEditForm(prev => ({ ...prev, note: value }));
+    } else {
+      setForm(prev => ({ ...prev, note: value }));
+    }
+  };
+
+  const handleMentionSelect = (borrower, isEdit = false) => {
+    const mentionText = `@${borrower.first_name} ${borrower.last_name}`;
+    const currentForm = isEdit ? editForm : form;
+    const currentNote = currentForm.note;
+    
+    // Replace the @search with the full mention
+    const beforeMention = currentNote.substring(0, mentionPosition);
+    const afterMention = currentNote.substring(mentionPosition + 1 + mentionSearchTerm.length);
+    const newNote = beforeMention + mentionText + afterMention;
+    
+    // Update the form
+    if (isEdit) {
+      setEditForm(prev => ({ ...prev, note: newNote }));
+    } else {
+      setForm(prev => ({ ...prev, note: newNote }));
+    }
+    
+    
+    // Hide dropdown
+    setShowMentionDropdown(false);
+    setMentionSearchTerm('');
+  };
+
+  const filteredBorrowersForMention = borrowers.filter(borrower => {
+    const fullName = `${borrower.first_name || ''} ${borrower.last_name || ''}`.toLowerCase();
+    return fullName.includes(mentionSearchTerm.toLowerCase());
+  });
+
 
   if (showForm) {
     return (
@@ -482,7 +571,7 @@ const Notes = ({ token }) => {
             </div>
 
             {/* Note Content */}
-            <div>
+            <div className="relative">
               <label htmlFor="note" className="block text-sm font-medium text-gray-700 mb-2">
                 Note Content *
               </label>
@@ -490,11 +579,46 @@ const Notes = ({ token }) => {
                 id="note"
                 name="note"
                 value={form.note}
-                onChange={handleInputChange}
+                onChange={(e) => handleTextareaChange(e, false)}
                 rows={8}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Write your note here..."
+                placeholder="Write your note here... Type @ to mention a borrower"
               />
+              
+              {/* Mention Dropdown */}
+              {showMentionDropdown && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredBorrowersForMention.length > 0 ? (
+                    filteredBorrowersForMention.map((borrower) => (
+                      <div
+                        key={borrower.id}
+                        onClick={() => handleMentionSelect(borrower, false)}
+                        className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <span className="text-blue-600 font-medium text-sm">
+                              {borrower.first_name?.[0]}{borrower.last_name?.[0]}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              {borrower.first_name} {borrower.last_name}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {borrower.email_address || `ID: ${borrower.borrower_id || borrower.id}`}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-gray-500 text-sm">
+                      No borrowers found
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Submit Button */}
@@ -583,7 +707,7 @@ const Notes = ({ token }) => {
             </div>
 
             {/* Note Content */}
-            <div>
+            <div className="relative">
               <label htmlFor="edit_note" className="block text-sm font-medium text-gray-700 mb-2">
                 Note Content *
               </label>
@@ -591,11 +715,46 @@ const Notes = ({ token }) => {
                 id="edit_note"
                 name="note"
                 value={editForm.note}
-                onChange={(e) => setEditForm(prev => ({ ...prev, note: e.target.value }))}
+                onChange={(e) => handleTextareaChange(e, true)}
                 rows={8}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Write your note here..."
+                placeholder="Write your note here... Type @ to mention a borrower"
               />
+              
+              {/* Mention Dropdown */}
+              {showMentionDropdown && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredBorrowersForMention.length > 0 ? (
+                    filteredBorrowersForMention.map((borrower) => (
+                      <div
+                        key={borrower.id}
+                        onClick={() => handleMentionSelect(borrower, true)}
+                        className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <span className="text-blue-600 font-medium text-sm">
+                              {borrower.first_name?.[0]}{borrower.last_name?.[0]}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              {borrower.first_name} {borrower.last_name}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {borrower.email_address || `ID: ${borrower.borrower_id || borrower.id}`}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-gray-500 text-sm">
+                      No borrowers found
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Submit Button */}
