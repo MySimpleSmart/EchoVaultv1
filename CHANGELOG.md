@@ -2,7 +2,7 @@
 
 All notable changes to EchoVault LMS will be documented in this file.
 
-## [1.2.0] - 2025-01-27
+## [1.2.0] - 2025-10-21
 
 ### 🎯 Added
 - **Sidebar Collapse/Expand**: Complete sidebar collapse functionality with smooth transitions
@@ -28,7 +28,7 @@ All notable changes to EchoVault LMS will be documented in this file.
 - `public/Logo/echologo_short.png`: Added collapsed sidebar logo
 - `public/favicon.ico`: Updated favicon
 
-## [1.1.0] - 2025-01-27
+## [1.1.0] - 2025-10-21
 
 ### 🎯 Added
 - **Notes Pagination**: Added pagination with 5, 10, 50, 100 items per page
@@ -46,7 +46,7 @@ All notable changes to EchoVault LMS will be documented in this file.
 - **Results Display**: Shows filtered results count
 - **Mention Dropdown**: Real-time borrower search and selection
 
-## [1.0.0] - 2025-01-27
+## [1.0.0] - 2025-10-21
 
 ### 🎯 Initial Release
 - **Core Features**: Dashboard, Borrowers, Loans, Bank Accounts, Notes, Reports, Settings
