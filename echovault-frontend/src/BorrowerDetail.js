@@ -250,8 +250,11 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
         </div>
       </div>
 
-      {/* Tab Content */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+      {/* Main Content with Sidebar */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Main Content */}
+        <div className="lg:col-span-2">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         {/* General Information Tab */}
         {activeTab === 'general' && (
           <div className="p-6">
@@ -772,10 +775,12 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
             </div>
           </div>
         )}
-      </div>
+          </div>
+        </div>
 
-      {/* Additional Information */}
-      <div className="mt-8 bg-white rounded-lg shadow-sm border border-gray-200">
+        {/* Additional Information Sidebar */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 sticky top-8">
         <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
           <h2 className="text-xl font-semibold text-gray-900 flex items-center">
             <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -785,7 +790,7 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
           </h2>
         </div>
         <div className="px-6 py-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Verification Status</label>
               <div className="flex items-center space-x-2">
@@ -833,6 +838,8 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 {borrower.borrower_id || borrower.meta?.borrower_id || `EV${borrower.id.toString().padStart(7, '0')}`}
               </p>
             </div>
+          </div>
+        </div>
           </div>
         </div>
       </div>

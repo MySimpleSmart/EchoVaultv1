@@ -27,6 +27,8 @@ const BankAccounts = ({ token, setCurrentView }) => {
     account_status: true
   });
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [countryFilter, setCountryFilter] = useState('');
 
   // Bank options
   const australianBanks = [
@@ -276,6 +278,36 @@ const BankAccounts = ({ token, setCurrentView }) => {
     handleUpdateAccount();
   };
 
+  // Filter accounts based on search term and country
+  const filteredAccounts = accounts ? accounts.filter(account => {
+    try {
+      // Check if search term matches (case-insensitive)
+      let matchesSearch = true;
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        matchesSearch = 
+          (account.account_name && String(account.account_name).toLowerCase().includes(searchLower)) ||
+          (account.title && String(account.title.rendered || account.title).toLowerCase().includes(searchLower)) ||
+          (account.bank_name_au && String(account.bank_name_au).toLowerCase().includes(searchLower)) ||
+          (account.bank_name_mn && String(account.bank_name_mn).toLowerCase().includes(searchLower)) ||
+          (account.account_number && String(account.account_number).includes(searchTerm)) ||
+          (account.bsb && String(account.bsb).includes(searchTerm));
+      }
+      
+      // Check if country filter matches
+      let matchesCountry = true;
+      if (countryFilter) {
+        const accountType = Array.isArray(account.account_type) ? account.account_type[0] : account.account_type;
+        matchesCountry = accountType === countryFilter;
+      }
+      
+      return matchesSearch && matchesCountry;
+    } catch (error) {
+      console.error('Error filtering account:', error, account);
+      return true; // Include account if there's an error
+    }
+  }) : [];
+
   useEffect(() => {
     fetchAccounts();
   }, [token]);
@@ -448,8 +480,10 @@ const BankAccounts = ({ token, setCurrentView }) => {
     );
   }
 
-  return (
-    <div>
+  // Add error boundary for the entire component
+  try {
+    return (
+      <div>
       {/* Header Section */}
       <div className="mb-8">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
@@ -469,6 +503,49 @@ const BankAccounts = ({ token, setCurrentView }) => {
         </div>
       </div>
 
+      {/* Filter and Search Section */}
+      <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Search Field */}
+          <div>
+            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
+              Search Accounts
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                id="search"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Search by account name, bank, account number, or BSB..."
+              />
+            </div>
+          </div>
+
+          {/* Country Filter */}
+          <div>
+            <label htmlFor="countryFilter" className="block text-sm font-medium text-gray-700 mb-2">
+              Filter by Country
+            </label>
+            <select
+              id="countryFilter"
+              value={countryFilter}
+              onChange={(e) => setCountryFilter(e.target.value)}
+              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All Countries</option>
+              <option value="Australia">Australia</option>
+              <option value="Mongolia">Mongolia</option>
+            </select>
+          </div>
+        </div>
+      </div>
 
       {/* Error Message */}
       {error && (
@@ -513,8 +590,31 @@ const BankAccounts = ({ token, setCurrentView }) => {
         </div>
       )}
 
+      {/* No Filter Results */}
+      {!loading && accounts.length > 0 && filteredAccounts.length === 0 && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+          <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">No matching accounts</h3>
+          <p className="text-gray-500 mb-4">No accounts match your current search criteria.</p>
+          <p className="text-sm text-gray-400 mb-6">Try adjusting your search term or country filter.</p>
+          <button
+            onClick={() => {
+              setSearchTerm('');
+              setCountryFilter('');
+            }}
+            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium"
+          >
+            Clear Filters
+          </button>
+        </div>
+      )}
+
       {/* Accounts Table */}
-      {!loading && accounts.length > 0 && (
+      {!loading && filteredAccounts.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -544,7 +644,7 @@ const BankAccounts = ({ token, setCurrentView }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {accounts.map((account, index) => {
+                {filteredAccounts.map((account, index) => {
                   // Handle account_status from API response
                   let accountStatus = account.account_status;
                   if (Array.isArray(accountStatus)) {
@@ -717,6 +817,30 @@ const BankAccounts = ({ token, setCurrentView }) => {
       />
     </div>
   );
+  } catch (error) {
+    console.error('BankAccounts component error:', error);
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 max-w-md w-full">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Bank Accounts</h3>
+            <p className="text-gray-500 mb-4">There was an error loading the bank accounts page.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 };
 
 export default BankAccounts;
