@@ -300,30 +300,19 @@ const LoanProducts = ({ token }) => {
     handleUpdateProduct();
   };
 
-  return (
-    <div>
-      {/* Header Section */}
-      <div className="mb-8">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+  if (showForm) {
+    return (
+      <div>
+        {/* Header Section */}
+        <div className="mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Loan Products</h1>
-            <p className="text-gray-600">Manage and view loan products and configurations</p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Create Loan Product</h1>
+            <p className="text-gray-600">Add a new loan product to your system</p>
           </div>
-          <button
-            onClick={handleCreateNew}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            <span>Create New Product</span>
-          </button>
         </div>
-      </div>
 
-      {showForm && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Create Loan Product</h3>
+        {/* Create Form */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Product ID */}
             <div>
@@ -448,14 +437,60 @@ const LoanProducts = ({ token }) => {
               </button>
               <span className={`text-sm ${form.product_status === 'Active' ? 'text-green-700' : 'text-gray-700'}`}>{form.product_status}</span>
             </div>
-            <div className="md:col-span-2 flex gap-2 pt-2">
-              <button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">{loading ? 'Saving...' : 'Save Product'}</button>
-              <button type="button" onClick={()=>setShowForm(false)} className="px-4 py-2 rounded-md border">Cancel</button>
+            <div className="md:col-span-2 flex justify-end space-x-4 pt-6 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {loading && (
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                )}
+                <span>
+                  {loading 
+                    ? 'Creating...' 
+                    : 'Create Product'
+                  }
+                </span>
+              </button>
             </div>
             {error && <div className="md:col-span-2 text-red-600 text-sm">{error}</div>}
           </form>
         </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Header Section */}
+      <div className="mb-8">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Loan Products</h1>
+            <p className="text-gray-600">Manage and view loan products and configurations</p>
+          </div>
+          <button
+            onClick={handleCreateNew}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            <span>Create New Product</span>
+          </button>
+        </div>
+      </div>
 
       {products.length === 0 ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
