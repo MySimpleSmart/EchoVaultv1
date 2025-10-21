@@ -558,10 +558,12 @@ const BankAccounts = ({ token, setCurrentView }) => {
                         {account.account_name || account.title}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {account.account_type}
+                        {Array.isArray(account.account_type) ? account.account_type[0] : account.account_type}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {account.account_type === 'Australia' ? account.bank_name_au : account.bank_name_mn}
+                        {(Array.isArray(account.account_type) ? account.account_type[0] : account.account_type) === 'Australia' 
+                          ? (Array.isArray(account.bank_name_au) ? account.bank_name_au[0] : account.bank_name_au)
+                          : (Array.isArray(account.bank_name_mn) ? account.bank_name_mn[0] : account.bank_name_mn)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {account.account_number}
@@ -612,12 +614,14 @@ const BankAccounts = ({ token, setCurrentView }) => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Country</label>
-                  <p className="text-sm text-gray-900">{selectedAccount.account_type}</p>
+                  <p className="text-sm text-gray-900">{Array.isArray(selectedAccount.account_type) ? selectedAccount.account_type[0] : selectedAccount.account_type}</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Bank</label>
                   <p className="text-sm text-gray-900">
-                    {selectedAccount.account_type === 'Australia' ? selectedAccount.bank_name_au : selectedAccount.bank_name_mn}
+                    {(Array.isArray(selectedAccount.account_type) ? selectedAccount.account_type[0] : selectedAccount.account_type) === 'Australia' 
+                      ? (Array.isArray(selectedAccount.bank_name_au) ? selectedAccount.bank_name_au[0] : selectedAccount.bank_name_au)
+                      : (Array.isArray(selectedAccount.bank_name_mn) ? selectedAccount.bank_name_mn[0] : selectedAccount.bank_name_mn)}
                   </p>
                 </div>
                 <div>
