@@ -34,6 +34,8 @@ const Notes = ({ token }) => {
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('All');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [notesPerPage, setNotesPerPage] = useState(50);
 
   const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
 
@@ -412,6 +414,23 @@ const Notes = ({ token }) => {
     return matchesSearch && matchesType;
   });
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredNotes.length / notesPerPage);
+  const startIndex = (currentPage - 1) * notesPerPage;
+  const endIndex = startIndex + notesPerPage;
+  const paginatedNotes = filteredNotes.slice(startIndex, endIndex);
+
+  // Reset to first page when search or filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterType]);
+
+  // Handle page change
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+
   if (showForm) {
     return (
       <div>
@@ -742,7 +761,7 @@ const Notes = ({ token }) => {
       {/* Search and Filter Section */}
       {!loading && notes.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Search Input */}
             <div>
               <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
@@ -782,11 +801,39 @@ const Notes = ({ token }) => {
                 ))}
               </select>
             </div>
+
+            {/* Per Page Selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Per Page
+              </label>
+              <select
+                value={notesPerPage}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setNotesPerPage(val);
+                  setCurrentPage(1);
+                }}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
           </div>
-          
-          {/* Results Count */}
-          <div className="mt-4 text-sm text-gray-600">
-            Showing {filteredNotes.length} of {notes.length} notes
+
+          {/* Filter Actions */}
+          <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
+            <div className="text-sm text-gray-600">
+              Showing {startIndex + 1}-{Math.min(endIndex, filteredNotes.length)} of {filteredNotes.length} notes
+              {filteredNotes.length !== notes.length && (
+                <span className="ml-2 text-blue-600">
+                  (filtered)
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -794,7 +841,7 @@ const Notes = ({ token }) => {
       {/* Notes Grid */}
       {!loading && filteredNotes.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredNotes.map((note, index) => {
+          {paginatedNotes.map((note, index) => {
             // Handle note_type from API response
             let noteType = note.note_type;
             if (Array.isArray(noteType)) {
@@ -856,6 +903,72 @@ const Notes = ({ token }) => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {!loading && filteredNotes.length > 0 && totalPages > 1 && (
+        <div className="mt-8 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <div className="text-sm text-gray-600">
+            Page {currentPage} of {totalPages}
+          </div>
+          
+          <div className="flex items-center justify-center gap-2">
+            {/* Previous Button */}
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            
+            {/* Page Numbers */}
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                // Show first page, last page, current page, and pages around current page
+                const shouldShow = 
+                  page === 1 || 
+                  page === totalPages || 
+                  (page >= currentPage - 1 && page <= currentPage + 1);
+                
+                if (!shouldShow) {
+                  // Show ellipsis for gaps
+                  if (page === currentPage - 2 || page === currentPage + 2) {
+                    return (
+                      <span key={page} className="px-2 py-1 text-sm text-gray-500">
+                        ...
+                      </span>
+                    );
+                  }
+                  return null;
+                }
+                
+                return (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    className={`px-3 py-2 text-sm font-medium rounded-md ${
+                      page === currentPage
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+            </div>
+            
+            {/* Next Button */}
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
 
