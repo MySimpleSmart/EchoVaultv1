@@ -36,6 +36,7 @@ const Notes = ({ token }) => {
   const [filterType, setFilterType] = useState('All');
   const [currentPage, setCurrentPage] = useState(1);
   const [notesPerPage, setNotesPerPage] = useState(50);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
   
   // Mention functionality
   const [borrowers, setBorrowers] = useState([]);
@@ -993,13 +994,47 @@ const Notes = ({ token }) => {
                 </span>
               )}
             </div>
+            
+            {/* View Mode Toggle */}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-600">View:</span>
+              <div className="flex bg-gray-100 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors duration-200 ${
+                    viewMode === 'grid'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                  title="Grid View"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors duration-200 ${
+                    viewMode === 'list'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                  title="List View"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Notes Grid */}
+      {/* Notes Display */}
       {!loading && filteredNotes.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {paginatedNotes.map((note, index) => {
             // Handle note_type from API response
             let noteType = note.note_type;
@@ -1014,55 +1049,149 @@ const Notes = ({ token }) => {
               : noteContent;
             
             return (
-              <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
-                <div className="flex flex-col h-full">
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-semibold text-gray-900 truncate">
-                        {note.note_title || note.title?.rendered || 'Untitled Note'}
-                      </h3>
-                    </div>
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ml-2 flex-shrink-0 ${getNoteTypeColor(noteType)}`}>
-                      {noteType || 'General'}
-                    </span>
-                  </div>
-                  
-                  {/* Content Preview */}
-                  <div className="text-gray-700 text-sm flex-1 mb-4">
-                    <div 
-                      className="overflow-hidden"
-                      style={{
-                        display: '-webkit-box',
-                        WebkitLineClamp: 4,
-                        WebkitBoxOrient: 'vertical',
-                        lineHeight: '1.4',
-                        maxHeight: '5.6em'
-                      }}
-                    >
-                      {previewContent}
-                    </div>
-                  </div>
-                  
-                  {/* Footer */}
-                  <div className="mt-auto pt-4 border-t border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs text-gray-500">
-                        {new Date(note.date).toLocaleDateString()}
+              <div key={index} className={`bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200 ${
+                viewMode === 'grid' ? 'p-6' : 'p-4'
+              }`}>
+                {viewMode === 'grid' ? (
+                  // Grid View Layout
+                  <div className="flex flex-col h-full">
+                    {/* Header */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-semibold text-gray-900 truncate">
+                          {note.note_title || note.title?.rendered || 'Untitled Note'}
+                        </h3>
                       </div>
-                      <button 
-                        onClick={() => handleViewDetails(note)}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ml-2 flex-shrink-0 ${getNoteTypeColor(noteType)}`}>
+                        {noteType || 'General'}
+                      </span>
+                    </div>
+                    
+                    {/* Content Preview */}
+                    <div className="text-gray-700 text-sm flex-1 mb-4">
+                      <div 
+                        className="overflow-hidden"
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          lineHeight: '1.4',
+                          maxHeight: '5.6em'
+                        }}
                       >
-                        View Details
-                      </button>
+                        {previewContent}
+                      </div>
+                    </div>
+                    
+                    {/* Footer */}
+                    <div className="mt-auto pt-4 border-t border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-gray-500">
+                          {new Date(note.date).toLocaleDateString()}
+                        </div>
+                        <button 
+                          onClick={() => handleViewDetails(note)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          View Details
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             );
           })}
         </div>
+        ) : (
+          // Table View
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Title
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Content Preview
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Created Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedNotes.map((note, index) => {
+                    // Handle note_type from API response
+                    let noteType = note.note_type;
+                    if (Array.isArray(noteType)) {
+                      noteType = noteType[0];
+                    }
+                    
+                    // Get content for preview
+                    const noteContent = note.note || note.content?.rendered || 'No content';
+                    const previewContent = noteContent.length > 100 
+                      ? noteContent.substring(0, 100) + '...' 
+                      : noteContent;
+                    
+                    return (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {note.note_title || note.title?.rendered || 'Untitled Note'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getNoteTypeColor(noteType)}`}>
+                            {noteType || 'General'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-700 max-w-xs">
+                            <div 
+                              className="overflow-hidden"
+                              style={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                lineHeight: '1.4',
+                                maxHeight: '2.8em'
+                              }}
+                            >
+                              {previewContent}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(note.date).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <button
+                            onClick={() => handleViewDetails(note)}
+                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                            title="View Note Details"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
       )}
 
       {/* Pagination */}
