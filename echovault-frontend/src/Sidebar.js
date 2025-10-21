@@ -2,6 +2,15 @@ import React, { useState } from 'react';
 
 const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
   const [loansOpen, setLoansOpen] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
+    if (!sidebarCollapsed) {
+      setLoansOpen(false); // Close loans submenu when collapsing
+    }
+  };
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z' },
     { id: 'borrowers', label: 'Borrowers', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 0 1 9.288 0M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0m6 3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM7 10a2 2 0 1 1-4 0 2 2 0 0 1 4 0z' },
@@ -14,14 +23,45 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
   ];
 
   return (
-    <div className="w-64 bg-white shadow-sm border-r border-gray-200 min-h-screen">
-      <div className="p-6">
-        <div className="flex items-center mb-8">
-          <img 
-            src="/Logo/echologo.png" 
-            alt="EchoVault" 
-            className="h-8 w-auto"
-          />
+    <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-white shadow-sm border-r border-gray-200 min-h-screen flex flex-col transition-all duration-300`}>
+      <div className={`${sidebarCollapsed ? 'p-2' : 'p-6'} flex-1`}>
+        <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} mb-8`}>
+          {!sidebarCollapsed && (
+            <img 
+              src="/Logo/echologo.png" 
+              alt="EchoVault" 
+              className="h-8 w-auto"
+            />
+          )}
+          {sidebarCollapsed && (
+            <div className="flex flex-col items-center space-y-2">
+              <button
+                onClick={toggleSidebar}
+                className="p-2 hover:bg-gray-100 rounded-md transition-colors duration-200 group relative"
+                title="Expand sidebar"
+              >
+                <img 
+                  src="/Logo/echologo_short.png" 
+                  alt="EchoVault" 
+                  className="h-8 w-auto"
+                />
+                <div className="absolute left-full ml-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                  Expand sidebar
+                </div>
+              </button>
+            </div>
+          )}
+          {!sidebarCollapsed && (
+            <button
+              onClick={toggleSidebar}
+              className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200"
+              title="Collapse sidebar"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <nav className="space-y-2">
@@ -32,42 +72,64 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
               <button
                 key={item.id}
                 onClick={() => setCurrentView(item.id)}
-                className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-1 group relative' : 'px-3'} py-2 text-sm font-medium rounded-lg transition-colors ${
                   currentView === item.id
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`}
+                title={sidebarCollapsed ? item.label : ''}
               >
-                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
                 </svg>
-                {item.label}
+                {!sidebarCollapsed && <span>{item.label}</span>}
+                {sidebarCollapsed && (
+                  <div className="absolute left-full ml-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                    {item.label}
+                  </div>
+                )}
               </button>
             ))}
 
           {/* Loans hierarchy directly under Dashboard */}
-          <div className="mt-2">
+          {sidebarCollapsed ? (
             <button
-              onClick={() => setLoansOpen(!loansOpen)}
-              className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                'text-gray-700 hover:bg-gray-100'
+              onClick={toggleSidebar}
+              className={`w-full flex items-center justify-center px-1 py-2 text-sm font-medium rounded-lg transition-colors group relative ${
+                'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               }`}
+              title="Loans - Click to expand"
             >
-              <span className="inline-flex items-center">
-                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h10M5 19h14M7 6h10M12 3v3" />
-                </svg>
-                Loans
-              </span>
-              <svg 
-                className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${loansOpen ? 'rotate-180' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h10M5 19h14M7 6h10M12 3v3" />
               </svg>
+              <div className="absolute left-full ml-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                Loans - Click to expand
+              </div>
             </button>
+          ) : (
+            <div className="mt-2">
+              <button
+                onClick={() => setLoansOpen(!loansOpen)}
+                className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <span className="inline-flex items-center">
+                  <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h10M5 19h14M7 6h10M12 3v3" />
+                  </svg>
+                  Loans
+                </span>
+                <svg 
+                  className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${loansOpen ? 'rotate-180' : ''}`} 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
             {loansOpen && (
             <div className="ml-3 space-y-1">
               <button
@@ -119,7 +181,8 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
               </button>
             </div>
             )}
-          </div>
+            </div>
+          )}
 
           {/* Remaining items after Loans */}
           {menuItems
@@ -128,21 +191,44 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
             <button
               key={item.id}
               onClick={() => setCurrentView(item.id)}
-              className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+              className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-1 group relative' : 'px-3'} py-2 text-sm font-medium rounded-lg transition-colors ${
                 currentView === item.id
                   ? 'bg-blue-100 text-blue-700'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               }`}
+              title={sidebarCollapsed ? item.label : ''}
             >
-              <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
               </svg>
-              {item.label}
+              {!sidebarCollapsed && <span>{item.label}</span>}
+              {sidebarCollapsed && (
+                <div className="absolute left-full ml-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                  {item.label}
+                </div>
+              )}
             </button>
           ))}
         </nav>
 
       </div>
+      
+      {/* Copyright Footer */}
+      {!sidebarCollapsed && (
+        <div className="p-6 border-t border-gray-200">
+          <p className="text-xs text-gray-500 text-center">
+            © 2025 EchoVault LMS. Developed by{' '}
+            <a 
+              href="https://simplesmart.com.au/" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 hover:underline transition-colors duration-200"
+            >
+              SimpleSmart
+            </a>
+          </p>
+        </div>
+      )}
     </div>
   );
 };
