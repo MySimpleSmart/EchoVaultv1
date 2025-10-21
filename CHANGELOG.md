@@ -2,6 +2,21 @@
 
 All notable changes to EchoVault LMS will be documented in this file.
 
+## [1.2.1] - 2025-01-27
+
+### 🐛 Fixed
+- **Bank Accounts Display**: Fixed issue where bank names were not showing for Australian accounts
+- **API Array Handling**: Added proper handling for API response fields returned as arrays
+- **Table & Modal Views**: Both table and modal now correctly display bank names for all account types
+
+### 🔧 Technical Changes
+- Enhanced array detection for `account_type`, `bank_name_au`, and `bank_name_mn` fields
+- Updated display logic to handle both string and array formats from API responses
+- Improved data extraction for consistent bank name display
+
+### 📁 Files Modified
+- `src/BankAccounts.js`: Fixed bank name display logic for Australian and Mongolian accounts
+
 ## [1.2.0] - 2025-10-21
 
 ### 🎯 Added
