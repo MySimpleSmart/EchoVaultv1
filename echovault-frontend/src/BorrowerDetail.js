@@ -267,19 +267,27 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
-                    <p className="text-gray-900 font-medium">{borrower.first_name || borrower.title?.rendered?.split(' ')[0] || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.first_name || borrower.title?.rendered?.split(' ')[0] || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
-                    <p className="text-gray-900 font-medium">{borrower.last_name || borrower.title?.rendered?.split(' ').slice(1).join(' ') || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.last_name || borrower.title?.rendered?.split(' ').slice(1).join(' ') || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</label>
-                    <p className="text-gray-900 font-medium">{borrower.date_of_birth ? formatDate(borrower.date_of_birth) : 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.date_of_birth ? formatDate(borrower.date_of_birth) : 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Registration Number</label>
-                    <p className="text-gray-900 font-medium">{borrower.registration_number || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.registration_number || 'Not specified'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -295,16 +303,22 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
-                    <p className="text-gray-900 font-medium">{borrower.email_address || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.email_address || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Mobile Number</label>
-                    <p className="text-gray-900 font-medium">{borrower.mobile_number || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.mobile_number || 'Not specified'}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="mt-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Home Address</label>
-                  <p className="text-gray-900 font-medium whitespace-pre-line">{borrower.home_address || 'Not provided'}</p>
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <span className="text-gray-900 whitespace-pre-line">{borrower.home_address || 'Not specified'}</span>
+                  </div>
                 </div>
               </div>
 
@@ -319,23 +333,27 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Social Link 1</label>
-                    <p className="text-gray-900 font-medium">
-                      {borrower.social_link_1 ? (
-                        <a href={borrower.social_link_1} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">
-                          {borrower.social_link_1}
-                        </a>
-                      ) : 'Not provided'}
-                    </p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">
+                        {borrower.social_link_1 ? (
+                          <a href={borrower.social_link_1} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">
+                            {borrower.social_link_1}
+                          </a>
+                        ) : 'Not specified'}
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Social Link 2</label>
-                    <p className="text-gray-900 font-medium">
-                      {borrower.social_link_2 ? (
-                        <a href={borrower.social_link_2} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">
-                          {borrower.social_link_2}
-                        </a>
-                      ) : 'Not provided'}
-                    </p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">
+                        {borrower.social_link_2 ? (
+                          <a href={borrower.social_link_2} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">
+                            {borrower.social_link_2}
+                          </a>
+                        ) : 'Not specified'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -384,12 +402,16 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Document Type</label>
-                <p className="text-gray-900 font-medium">{Array.isArray(borrower.document_type) ? borrower.document_type.join(', ') : borrower.document_type || 'Not provided'}</p>
+                <div className="p-3 bg-gray-50 rounded-lg border">
+                  <span className="text-gray-900">{Array.isArray(borrower.document_type) ? borrower.document_type.join(', ') : borrower.document_type || 'Not specified'}</span>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Document Number</label>
-                <p className="text-gray-900 font-medium">{borrower.document_number || borrower.meta?.document_number || 'Not provided'}</p>
+                <div className="p-3 bg-gray-50 rounded-lg border">
+                  <span className="text-gray-900">{borrower.document_number || borrower.meta?.document_number || 'Not specified'}</span>
+                </div>
               </div>
               
               <div>
@@ -511,11 +533,15 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Employment Status</label>
-                    <p className="text-gray-900 font-medium">{borrower.employment_status || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.employment_status || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Work Rights</label>
-                    <p className="text-gray-900 font-medium">{borrower.work_rights || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.work_rights || 'Not specified'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -531,23 +557,31 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Employer Name</label>
-                    <p className="text-gray-900 font-medium">{borrower.employer_name || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.employer_name || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Job Title</label>
-                    <p className="text-gray-900 font-medium">{borrower.job_title || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.job_title || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Monthly Income (AUD)</label>
-                    <p className="text-gray-900 font-medium">
-                      {borrower.monthly_income_aud ? `$${borrower.monthly_income_aud}` : 'Not provided'}
-                    </p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">
+                        {borrower.monthly_income_aud ? `$${borrower.monthly_income_aud}` : 'Not specified'}
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Employment Start Date</label>
-                    <p className="text-gray-900 font-medium">
-                      {borrower.employment_start_date ? formatDate(borrower.employment_start_date) : 'Not provided'}
-                    </p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">
+                        {borrower.employment_start_date ? formatDate(borrower.employment_start_date) : 'Not specified'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -563,22 +597,28 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Employer Phone</label>
-                    <p className="text-gray-900 font-medium">{borrower.employer_phone || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.employer_phone || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Employer Email</label>
-                    <p className="text-gray-900 font-medium">
-                      {borrower.employer_email ? (
-                        <a href={`mailto:${borrower.employer_email}`} className="text-blue-600 hover:text-blue-800 underline">
-                          {borrower.employer_email}
-                        </a>
-                      ) : 'Not provided'}
-                    </p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">
+                        {borrower.employer_email ? (
+                          <a href={`mailto:${borrower.employer_email}`} className="text-blue-600 hover:text-blue-800 underline">
+                            {borrower.employer_email}
+                          </a>
+                        ) : 'Not specified'}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div className="mt-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Employer Address</label>
-                  <p className="text-gray-900 font-medium whitespace-pre-line">{borrower.employer_address || 'Not provided'}</p>
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <span className="text-gray-900 whitespace-pre-line">{borrower.employer_address || 'Not specified'}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -600,11 +640,15 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Marital Status</label>
-                    <p className="text-gray-900 font-medium">{borrower.marital_status || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.marital_status || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Family Relationship</label>
-                    <p className="text-gray-900 font-medium">{borrower.family_relationship || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.family_relationship || 'Not specified'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -620,22 +664,28 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Family Member Full Name</label>
-                    <p className="text-gray-900 font-medium">{borrower.family_member_full_name || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.family_member_full_name || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Family Member Phone</label>
-                    <p className="text-gray-900 font-medium">{borrower.family_member_phone || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.family_member_phone || 'Not specified'}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="mt-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Family Member Email</label>
-                  <p className="text-gray-900 font-medium">
-                    {borrower.family_member_email ? (
-                      <a href={`mailto:${borrower.family_member_email}`} className="text-blue-600 hover:text-blue-800 underline">
-                        {borrower.family_member_email}
-                      </a>
-                    ) : 'Not provided'}
-                  </p>
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <span className="text-gray-900">
+                      {borrower.family_member_email ? (
+                        <a href={`mailto:${borrower.family_member_email}`} className="text-blue-600 hover:text-blue-800 underline">
+                          {borrower.family_member_email}
+                        </a>
+                      ) : 'Not specified'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -657,11 +707,15 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Bank Name</label>
-                    <p className="text-gray-900 font-medium">{borrower.bank_name || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.bank_name || 'Not specified'}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Account Name</label>
-                    <p className="text-gray-900 font-medium">{borrower.account_name || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.account_name || 'Not specified'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -677,11 +731,15 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">BSB Number</label>
-                    <p className="text-gray-900 font-medium">{borrower.bsb_number || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.bsb && String(borrower.bsb).trim() ? borrower.bsb : (borrower.bsb_number && String(borrower.bsb_number).trim() ? borrower.bsb_number : 'Not specified')}</span>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Account Number</label>
-                    <p className="text-gray-900 font-medium">{borrower.account_number || 'Not provided'}</p>
+                    <div className="p-3 bg-gray-50 rounded-lg border">
+                      <span className="text-gray-900">{borrower.account_number && String(borrower.account_number).trim() ? borrower.account_number : 'Not specified'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
