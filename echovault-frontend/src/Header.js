@@ -2,13 +2,18 @@ import React, { useState, useRef, useEffect } from 'react';
 
 const Header = ({ onLogout, user, onNavigateToProfile }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const notificationRef = useRef(null);
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsDropdownOpen(false);
+      }
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setIsNotificationOpen(false);
       }
     };
 
@@ -28,6 +33,16 @@ const Header = ({ onLogout, user, onNavigateToProfile }) => {
     onLogout();
   };
 
+  const handleNotificationClick = () => {
+    setIsNotificationOpen(!isNotificationOpen);
+    setIsDropdownOpen(false); // Close profile dropdown if open
+  };
+
+  const handleHelpClick = () => {
+    // You can add help functionality here
+    alert('Help feature coming soon!');
+  };
+
   return (
     <header className="bg-white shadow-sm border-b border-gray-200 h-16">
       <div className="flex items-center justify-between h-full px-6">
@@ -35,6 +50,87 @@ const Header = ({ onLogout, user, onNavigateToProfile }) => {
         </div>
         
         <div className="flex items-center space-x-4">
+          {/* Help Icon */}
+          <button
+            onClick={handleHelpClick}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200"
+            title="Help"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+
+          {/* Notification Icon */}
+          <div className="relative" ref={notificationRef}>
+            <button
+              onClick={handleNotificationClick}
+              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200 relative"
+              title="Notifications"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5v-5zM4.828 7l2.586 2.586a2 2 0 002.828 0L12.828 7H4.828zM4.828 17l2.586-2.586a2 2 0 012.828 0L12.828 17H4.828z" />
+              </svg>
+              {/* Notification Badge */}
+              <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                3
+              </span>
+            </button>
+
+            {/* Notification Dropdown */}
+            {isNotificationOpen && (
+              <div className="absolute right-0 mt-2 w-80 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <h3 className="text-sm font-medium text-gray-900">Notifications</h3>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  <div className="px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">New loan application received</p>
+                        <p className="text-xs text-gray-500 mt-1">John Doe submitted a loan application 2 hours ago</p>
+                        <p className="text-xs text-gray-400 mt-1">2 hours ago</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0">
+                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">Payment received</p>
+                        <p className="text-xs text-gray-500 mt-1">Jane Smith made a payment of $500</p>
+                        <p className="text-xs text-gray-400 mt-1">4 hours ago</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3 hover:bg-gray-50">
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0">
+                        <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2"></div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">Document verification pending</p>
+                        <p className="text-xs text-gray-500 mt-1">3 documents need verification</p>
+                        <p className="text-xs text-gray-400 mt-1">1 day ago</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="px-4 py-2 border-t border-gray-100">
+                  <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    View all notifications
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Profile Dropdown */}
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
