@@ -4,6 +4,26 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
   const [loansOpen, setLoansOpen] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // Function to determine which main section a view belongs to
+  const getParentSection = (view) => {
+    // Borrower-related views
+    if (['borrowers', 'borrower-detail', 'create-borrower', 'edit-borrower'].includes(view)) {
+      return 'borrowers';
+    }
+    // Loan-related views that are in the collapsible Loans section
+    if (['loans-active', 'loan-requests', 'loan-requests-create', 'loan-calculator'].includes(view)) {
+      return 'loans-section';
+    }
+    // Direct matches for other sections (including loan-products and loan-contract which are separate menu items)
+    return view;
+  };
+
+  // Check if a menu item should be active
+  const isActive = (itemId) => {
+    const parentSection = getParentSection(currentView);
+    return parentSection === itemId;
+  };
+
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
     if (!sidebarCollapsed) {
@@ -73,7 +93,7 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
                 key={item.id}
                 onClick={() => setCurrentView(item.id)}
                 className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-1 group relative' : 'px-3'} py-2 text-sm font-medium rounded-lg transition-colors ${
-                  currentView === item.id
+                  isActive(item.id)
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`}
@@ -135,7 +155,7 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
               <button
                 onClick={() => setCurrentView('loans-active')}
                 className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  currentView === 'loans-active'
+                  currentView === 'loans-active' || currentView === 'loans-create'
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`}
@@ -145,12 +165,12 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h10M5 19h14M7 6h10M12 3v3" />
                   </svg>
                 </span>
-                Loans
+                All Loans
               </button>
               <button
                 onClick={() => setCurrentView('loan-requests')}
                 className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  currentView === 'loan-requests'
+                  currentView === 'loan-requests' || currentView === 'loan-requests-create'
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`}
@@ -192,7 +212,7 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
               key={item.id}
               onClick={() => setCurrentView(item.id)}
               className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-1 group relative' : 'px-3'} py-2 text-sm font-medium rounded-lg transition-colors ${
-                currentView === item.id
+                isActive(item.id)
                   ? 'bg-blue-100 text-blue-700'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               }`}
