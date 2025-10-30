@@ -166,23 +166,77 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     if (!Number.isNaN(n)) setForm(prev => ({ ...prev, [name]: n }));
   };
 
-  // Step guard validation
+  // Step-by-step live validation helpers
+  const hasValue = (v) => !(v === '' || v === null || v === undefined);
+  const missingStep1 = () => {
+    const m = [];
+    if (!hasValue(form.borrower)) m.push('Borrower');
+    if (!hasValue(form.loan_product)) m.push('Loan Product');
+    // Validate core inputs where they are entered (step 1)
+    if (!(Number(form.loan_term) > 0)) m.push('Loan Term');
+    if (!(Number(form.loan_amount) > 0)) m.push('Loan Amount');
+    if (!hasValue(form.start_date)) m.push('Start Date');
+    if (form.co_borrower_status === 'Yes' && !hasValue(form.co_borrower)) m.push('Co-borrower');
+    return m;
+  };
+  const missingStep2 = () => {
+    const m = [];
+    if (form.co_borrower_status === 'Yes' && !hasValue(form.co_borrower)) m.push('Co-borrower');
+    return m;
+  };
+  const missingStep3 = () => {
+    const m = [];
+    if (!(Number(form.loan_term) > 0)) m.push('Loan Term');
+    if (!(Number(form.loan_amount) > 0)) m.push('Loan Amount');
+    if (!hasValue(form.start_date)) m.push('Start Date');
+    return m;
+  };
+
+  // Live field-level missing flags
+  const isMissing = {
+    borrower: !hasValue(form.borrower),
+    loan_product: !hasValue(form.loan_product),
+    loan_term: !(Number(form.loan_term) > 0),
+    loan_amount: !(Number(form.loan_amount) > 0),
+    start_date: !hasValue(form.start_date),
+    co_borrower: form.co_borrower_status === 'Yes' && !hasValue(form.co_borrower),
+    loan_disbursement_account: (borrowerDisbursementOptions && borrowerDisbursementOptions.length > 0) && !hasValue(form.loan_disbursement_account),
+    loan_repayment_account: !hasValue(form.loan_repayment_account)
+  };
+  const isStepValid = (s) => {
+    if (s === 1) return missingStep1().length === 0;
+    if (s === 2) return missingStep2().length === 0;
+    if (s === 3) return missingStep3().length === 0;
+    if (s === 4) return true; // collateral optional
+    if (s === 5) return true; // contract optional
+    if (s === 6) return validate() === '';
+    return true;
+  };
+
+  // Replace generic validateStep message with specific per-step messages
   const validateStep = (s) => {
     if (s === 1) {
-      if (!form.borrower || !form.loan_product) return 'Select borrower and loan product to proceed';
-      return '';
+      const miss = missingStep1();
+      return miss.length ? `Provide: ${miss.join(', ')}` : '';
     }
     if (s === 2) {
-      if (form.co_borrower_status === 'Yes' && !form.co_borrower) return 'Select co-borrower or disable co-borrower';
-      return '';
+      const miss = missingStep2();
+      return miss.length ? `Provide: ${miss.join(', ')}` : '';
     }
     if (s === 3) {
-      if (!form.loan_term || !form.loan_amount || !form.start_date) return 'Provide term, amount and start date';
-      return '';
+      const miss = missingStep3();
+      return miss.length ? `Provide: ${miss.join(', ')}` : '';
     }
-    if (s === 5) return validate();
+    if (s === 6) return validate();
     return '';
   };
+
+  // Clear any old error when relevant fields or step change
+  useEffect(() => {
+    setError('');
+  }, [step, form.borrower, form.loan_product, form.co_borrower_status, form.co_borrower, form.loan_term, form.loan_amount, form.start_date]);
+
+  
 
   // Schedule helpers
   const periodsForFrequency = (months, freq) => {
@@ -207,6 +261,51 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     if (freq === 'Fortnightly') return addDays(start, (idx + 1) * 14);
     if (freq === 'Weekly') return addDays(start, (idx + 1) * 7);
     return addMonths(start, idx + 1);
+  };
+
+  const downloadScheduleCsv = () => {
+    if (!schedule || schedule.length === 0) return;
+    const headers = ['#','Date','Payment','Principal','Interest','Balance'];
+    const rows = schedule.map(r => [
+      r.idx,
+      new Date(r.date).toISOString().slice(0,10),
+      r.payment.toFixed(2),
+      r.principal.toFixed(2),
+      r.interest.toFixed(2),
+      r.balance.toFixed(2)
+    ]);
+    const csv = [headers, ...rows].map(cols => cols.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const filename = `repayment_schedule_${form.loan_id || 'loan'}.csv`;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const getDisbursementLabel = () => {
+    try {
+      const disb = form.loan_disbursement_account ? JSON.parse(form.loan_disbursement_account) : null;
+      if (!disb) return '';
+      const bank = Array.isArray(disb.bankName) ? (disb.bankName[0] || '') : (disb.bankName || '');
+      const parts = [disb.accountName || '', bank, disb.accountNumber || '', disb.bsb ? `BSB ${disb.bsb}` : ''].filter(Boolean);
+      return parts.join(' • ');
+    } catch (_) {
+      return '';
+    }
+  };
+
+  const getRepaymentLabel = () => {
+    const acc = activeSystemAccounts.find(a => String(a.id) === String(form.loan_repayment_account));
+    if (!acc) return '';
+    const country = Array.isArray(acc.account_type) ? acc.account_type[0] : acc.account_type;
+    const bank = country === 'Australia' ? (Array.isArray(acc.bank_name_au) ? acc.bank_name_au[0] : acc.bank_name_au) : (Array.isArray(acc.bank_name_mn) ? acc.bank_name_mn[0] : acc.bank_name_mn);
+    const parts = [acc.account_name || '', bank || '', acc.account_number || '', acc.bsb ? `BSB ${acc.bsb}` : ''].filter(Boolean);
+    return parts.join(' • ');
   };
 
   useEffect(() => {
@@ -396,17 +495,18 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   };
 
   const Stepper = () => {
-    const steps = ['Loan Form','Borrowers','Schedule','Contract','Confirm'];
+    const steps = ['Loan Form','Borrowers','Schedule','Collateral','Contract','Confirm'];
     const pct = ((step - 1) / (steps.length - 1)) * 100;
     return (
       <div className="mb-6">
         <div className="w-full bg-gray-200 rounded-full h-2">
-          <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${pct}%` }}></div>
+          <div className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-in-out" style={{ width: `${pct}%` }}></div>
         </div>
-        <div className="flex justify-between mt-2">
+        <div className="flex justify-between items-center mt-3">
           {steps.map((label, i) => (
-            <div key={label} className="text-[11px] text-gray-700">
-              <span className={`${step-1 === i ? 'font-semibold text-blue-700' : ''}`}>{label}</span>
+            <div key={label} className="flex flex-col items-center w-full">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${step-1 >= i ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} transition-colors duration-300`}>{i+1}</div>
+              <div className={`mt-1 text-[11px] ${step-1 === i ? 'font-semibold text-blue-700' : 'text-gray-700'}`}>{label}</div>
             </div>
           ))}
         </div>
@@ -508,7 +608,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Borrower</label>
-              <select name="borrower" value={form.borrower} onChange={onChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" required>
+              <select name="borrower" value={form.borrower} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.borrower && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required>
                 <option value="">Select verified borrower</option>
                 {verifiedBorrowers.map(b => (
                   <option key={b.id} value={b.id}>{b.first_name} {b.last_name} ({b.email_address})</option>
@@ -517,7 +617,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Co-borrower?</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Co-borrower Status</label>
               <select name="co_borrower_status" value={form.co_borrower_status} onChange={onChange} className="w-full px-3 py-2 border border-gray-300 rounded-md">
                 <option value="No">No</option>
                 <option value="Yes">Yes</option>
@@ -527,7 +627,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
             {form.co_borrower_status === 'Yes' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Co-borrower</label>
-                <select name="co_borrower" value={form.co_borrower} onChange={onChange} className="w-full px-3 py-2 border border-gray-300 rounded-md">
+                <select name="co_borrower" value={form.co_borrower} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.co_borrower && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`}>
                   <option value="">Select borrower</option>
                   {borrowers.map(b => (
                     <option key={b.id} value={b.id}>{b.first_name} {b.last_name} ({b.email_address})</option>
@@ -536,23 +636,11 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </div>
             )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Collateral (PDF)</label>
-              <label className="block border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 text-center cursor-pointer bg-gray-50">
-                <div className="flex flex-col items-center">
-                  <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
-                  </svg>
-                  <span className="text-xs text-gray-600 mt-1">Click to upload PDF</span>
-                  {collateralFile && <span className="text-xs text-gray-500 mt-1">{collateralFile.name}</span>}
-                </div>
-                <input type="file" accept="application/pdf" onChange={(e)=>setCollateralFile(e.target.files?.[0]||null)} className="hidden" />
-              </label>
-            </div>
+            {/* Collateral moved to step 4 */}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Loan Product</label>
-              <select name="loan_product" value={form.loan_product} onChange={onChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" required>
+              <select name="loan_product" value={form.loan_product} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.loan_product && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required>
                 <option value="">Select active product</option>
                 {activeProducts.map(p => (
                   <option key={p.id} value={p.id}>{p.product_name} (Term {p.term_min}-{p.term_max}m, {p.currency})</option>
@@ -572,7 +660,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Loan Term (months)</label>
-              <input name="loan_term" type="number" min={minTerm || 1} max={maxTerm || undefined} value={form.loan_term} onChange={onNumber} className="w-full px-3 py-2 border border-gray-300 rounded-md" required />
+              <input name="loan_term" type="number" min={minTerm || 1} max={maxTerm || undefined} value={form.loan_term} onChange={onNumber} className={`w-full px-3 py-2 border rounded-md ${isMissing.loan_term && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required />
               {(minTerm || maxTerm) && <p className="text-xs text-gray-500 mt-1">Allowed: {minTerm || '?'} - {maxTerm || '?'} months</p>}
             </div>
 
@@ -580,7 +668,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Loan Amount</label>
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}</span>
-                <input name="loan_amount" type="number" min={minAmount || 0} max={maxAmount || undefined} value={form.loan_amount} onChange={onNumber} className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md" required />
+                <input name="loan_amount" type="number" min={minAmount || 0} max={maxAmount || undefined} value={form.loan_amount} onChange={onNumber} className={`w-full pl-8 pr-3 py-2 border rounded-md ${isMissing.loan_amount && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required />
               </div>
               {(minAmount || maxAmount) && <p className="text-xs text-gray-500 mt-1">Range: {getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{minAmount || 0} - {getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{maxAmount || '∞'}</p>}
             </div>
@@ -613,7 +701,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-              <input name="start_date" type="date" value={form.start_date} onChange={onChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" required />
+              <input name="start_date" type="date" value={form.start_date} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.start_date && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required />
             </div>
 
             <div>
@@ -622,23 +710,11 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               <p className="text-xs text-gray-500 mt-1">Auto-calculated from start date and loan term</p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Loan Contract (PDF)</label>
-              <label className="block border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 text-center cursor-pointer bg-gray-50">
-                <div className="flex flex-col items-center">
-                  <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
-                  </svg>
-                  <span className="text-xs text-gray-600 mt-1">Click to upload PDF</span>
-                  {loanContractFile && <span className="text-xs text-gray-500 mt-1">{loanContractFile.name}</span>}
-                </div>
-                <input type="file" accept="application/pdf" onChange={(e)=>setLoanContractFile(e.target.files?.[0]||null)} className="hidden" />
-              </label>
-            </div>
+            {/* Contract upload moved to step 5 */}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Disbursement Account (Borrower)</label>
-              <select name="loan_disbursement_account" value={form.loan_disbursement_account} onChange={onChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" disabled={!borrowerDisbursementOptions.length}>
+              <select name="loan_disbursement_account" value={form.loan_disbursement_account} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.loan_disbursement_account && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} disabled={!borrowerDisbursementOptions.length}>
                 <option value="">{borrowerDisbursementOptions.length ? 'Select borrower account' : 'No borrower account found'}</option>
                 {borrowerDisbursementOptions.map((opt, idx) => (
                   <option key={idx} value={opt.value}>{opt.label}</option>
@@ -648,7 +724,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Repayment Account (System)</label>
-              <select name="loan_repayment_account" value={form.loan_repayment_account} onChange={onChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" required>
+              <select name="loan_repayment_account" value={form.loan_repayment_account} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.loan_repayment_account && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required>
                 <option value="">Select active system account</option>
                 {activeSystemAccounts.map(a => (
                   <option key={a.id} value={a.id}>
@@ -659,7 +735,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
             </div>
             <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
               <button type="button" onClick={() => setCurrentView('loans-active')} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Cancel</button>
-              <button type="button" onClick={() => { const m = validateStep(1); if (m) { setError(m); return; } setError(''); setStep(2); }} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Borrower Details</button>
+              <button type="button" disabled={missingStep1().length>0} onClick={() => setStep(2)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Borrower Details</button>
             </div>
             </>)}
 
@@ -676,15 +752,37 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               )}
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <button type="button" onClick={() => setStep(1)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                <button type="button" onClick={() => { const m = validateStep(2); if (m) { setError(m); return; } setError(''); setStep(3); }} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Loan Schedule</button>
+                <button type="button" disabled={missingStep2().length>0} onClick={() => setStep(3)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Loan Schedule</button>
               </div>
             </>)}
 
             {step === 3 && (<>
               <div className="md:col-span-2">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Repayment Schedule</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">Repayment Schedule</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      disabled={!schedule || schedule.length===0}
+                      className="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Print schedule"
+                    >
+                      Print
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadScheduleCsv}
+                      disabled={!schedule || schedule.length===0}
+                      className="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Download CSV"
+                    >
+                      Download CSV
+                    </button>
+                  </div>
+                </div>
                 {schedule.length === 0 ? (
-                  <div className="text-sm text-gray-600">Enter amount, term, product, and dates to generate schedule.</div>
+                  <div className="text-sm text-gray-600">Adjust inputs to generate schedule.</div>
                 ) : (
                   <div className="overflow-x-auto border rounded-md">
                     <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -716,52 +814,102 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <button type="button" onClick={() => setStep(2)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                <button type="button" onClick={() => { const m = validateStep(3); if (m) { setError(m); return; } setError(''); setStep(4); }} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Contract</button>
+                <button type="button" disabled={missingStep3().length>0} onClick={() => setStep(4)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Collateral</button>
               </div>
             </>)}
 
             {step === 4 && (<>
-              <div className="md:col-span-2">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Contract</h3>
-                <div className="p-4 border rounded-lg bg-gray-50 text-sm text-gray-600">This section is intentionally left blank for now.</div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Collateral (PDF)</label>
+                <label className="block border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 text-center cursor-pointer bg-gray-50">
+                  <div className="flex flex-col items-center">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
+                    </svg>
+                    <span className="text-xs text-gray-600 mt-1">Click to upload PDF</span>
+                    {collateralFile && <span className="text-xs text-gray-500 mt-1">{collateralFile.name}</span>}
+                  </div>
+                  <input type="file" accept="application/pdf" onChange={(e)=>setCollateralFile(e.target.files?.[0]||null)} className="hidden" />
+                </label>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <button type="button" onClick={() => setStep(3)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                <button type="button" onClick={() => setStep(5)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Confirm</button>
+                <button type="button" onClick={() => setStep(5)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Contract</button>
               </div>
             </>)}
 
             {step === 5 && (<>
-              <div className="md:col-span-2 space-y-3">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Confirm Loan</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div className="p-3 border rounded">
-                    <div className="font-medium text-gray-800 mb-1">Summary</div>
-                    <div>Loan ID: {form.loan_id}</div>
-                    <div>Product: {selectedProduct?.product_name}</div>
-                    <div>Interest: {form.loan_interest}%</div>
-                    <div>Term: {form.loan_term} months</div>
-                    <div>Amount: {getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{form.loan_amount}</div>
-                    <div>Method: {form.repayment_method}</div>
-                    <div>Frequency: {form.repayment_frequency}</div>
-                    <div>Start: {form.start_date}</div>
-                    <div>End: {form.end_date}</div>
-                  </div>
-                  <div className="p-3 border rounded">
-                    <div className="font-medium text-gray-800 mb-1">Borrower</div>
-                    <BorrowerBadge b={borrowerObj} />
-                    {form.co_borrower_status === 'Yes' && (
-                      <div className="mt-3">
-                        <div className="font-medium text-gray-800 mb-1">Co-borrower</div>
-                        <BorrowerBadge b={borrowers.find(b => String(b.id) === String(form.co_borrower))} />
-                      </div>
-                    )}
-                  </div>
+              <div className="md:col-span-2">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Contract</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Loan Contract (PDF)</label>
+                  <label className="block border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 text-center cursor-pointer bg-gray-50">
+                    <div className="flex flex-col items-center">
+                      <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
+                      </svg>
+                      <span className="text-xs text-gray-600 mt-1">Click to upload PDF</span>
+                      {loanContractFile && <span className="text-xs text-gray-500 mt-1">{loanContractFile.name}</span>}
+                    </div>
+                    <input type="file" accept="application/pdf" onChange={(e)=>setLoanContractFile(e.target.files?.[0]||null)} className="hidden" />
+                  </label>
                 </div>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <button type="button" onClick={() => setStep(4)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                <button type="submit" disabled={submitting} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
+                <button type="button" onClick={() => setStep(6)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Confirm</button>
+              </div>
+            </>)}
+
+            {step === 6 && (<>
+              <div className="md:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Confirm Loan</h3>
+                  <span className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 border border-blue-200">Step 6 of 6</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div className="p-4 border rounded-lg bg-gray-50">
+                    <div className="font-semibold text-gray-900 mb-2">Loan Summary</div>
+                    <div className="grid grid-cols-2 gap-y-1">
+                      <div className="text-gray-500">Loan ID</div><div className="text-gray-900 font-medium">{form.loan_id}</div>
+                      <div className="text-gray-500">Product</div><div className="text-gray-900 font-medium">{selectedProduct?.product_name}</div>
+                      <div className="text-gray-500">Interest</div><div className="text-gray-900 font-medium">{form.loan_interest}%</div>
+                      <div className="text-gray-500">Term</div><div className="text-gray-900 font-medium">{form.loan_term} months</div>
+                      <div className="text-gray-500">Amount</div><div className="text-gray-900 font-medium">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{form.loan_amount}</div>
+                      <div className="text-gray-500">Method</div><div className="text-gray-900 font-medium">{form.repayment_method}</div>
+                      <div className="text-gray-500">Frequency</div><div className="text-gray-900 font-medium">{form.repayment_frequency}</div>
+                      <div className="text-gray-500">Start</div><div className="text-gray-900 font-medium">{form.start_date}</div>
+                      <div className="text-gray-500">End</div><div className="text-gray-900 font-medium">{form.end_date}</div>
+                    </div>
+                  </div>
+                  <div className="p-4 border rounded-lg bg-gray-50">
+                    <div className="font-semibold text-gray-900 mb-2">Borrower</div>
+                    <BorrowerBadge b={borrowerObj} />
+                    {form.co_borrower_status === 'Yes' && form.co_borrower && (
+                      <div className="mt-4">
+                        <div className="font-semibold text-gray-900 mb-2">Co-borrower</div>
+                        <BorrowerBadge b={borrowers.find(b => String(b.id) === String(form.co_borrower))} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-4 border rounded-lg bg-gray-50">
+                    <div className="font-semibold text-gray-900 mb-2">Accounts</div>
+                    <div className="grid grid-cols-1 gap-y-1">
+                      <div>
+                        <div className="text-gray-500">Disbursement</div>
+                        <div className="text-gray-900 font-medium break-all">{getDisbursementLabel() || '-'}</div>
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-gray-500">Repayment</div>
+                        <div className="text-gray-900 font-medium break-all">{getRepaymentLabel() || '-'}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
+                <button type="button" onClick={() => setStep(5)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                <button type="submit" disabled={submitting || !!error} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
                   {submitting && (
                     <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
