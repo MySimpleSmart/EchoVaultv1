@@ -32,6 +32,12 @@ const LoansActive = ({ token, setCurrentView }) => {
   const [products, setProducts] = useState([]);
   const [systemAccounts, setSystemAccounts] = useState([]);
   const [borrowers, setBorrowers] = useState([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [productFilter, setProductFilter] = useState('all');
+  const [currencyFilter, setCurrencyFilter] = useState('all');
+  const [perPage, setPerPage] = useState(10);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     if (!token) return;
@@ -121,6 +127,65 @@ const LoansActive = ({ token, setCurrentView }) => {
     return map;
   }, [borrowers]);
 
+  const filteredLoans = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = loans.slice();
+    if (statusFilter !== 'all') list = list.filter(l => toPrimitive(l.status, '').toLowerCase() === statusFilter);
+    if (productFilter !== 'all') {
+      list = list.filter(l => {
+        const rawProd = toPrimitive(l.meta?.loan_product_name) || toPrimitive(l.loan_product) || toPrimitive(l.meta?.loan_product);
+        const prodName = rawProd ? String(rawProd) : '';
+        const byIdName = productIdToName.get(String(rawProd));
+        const disp = byIdName || prodName;
+        return disp && String(disp).toLowerCase() === String(productFilter).toLowerCase();
+      });
+    }
+    if (currencyFilter !== 'all') {
+      list = list.filter(l => {
+        const c = toPrimitive(l.loan_currency) || toPrimitive(l.meta?.loan_currency) || '';
+        return String(c).toLowerCase() === String(currencyFilter).toLowerCase();
+      });
+    }
+    if (q) {
+      list = list.filter(l => {
+        const loanId = (toPrimitive(l.loan_id) || toPrimitive(l.meta?.loan_id) || '').toLowerCase();
+        const rawProd = toPrimitive(l.meta?.loan_product_name) || toPrimitive(l.loan_product) || toPrimitive(l.meta?.loan_product);
+        const byIdName = productIdToName.get(String(rawProd));
+        const productDisp = (byIdName || rawProd || '').toLowerCase();
+        const currency = (toPrimitive(l.loan_currency) || toPrimitive(l.meta?.loan_currency) || '').toLowerCase();
+        const borrowerId = toId(l.meta?.borrower_id) || toId(l.borrower) || toId(l.meta?.borrower) || toId(l.meta?.borrower_profile);
+        const bInfo = borrowerId ? borrowerIdToInfo.get(String(borrowerId)) : null;
+        const name = (bInfo?.name || toPrimitive(l.borrower_name) || toPrimitive(l.meta?.borrower_name) || '').toLowerCase();
+        const email = (bInfo?.email || toPrimitive(l.borrower_email) || toPrimitive(l.meta?.borrower_email) || '').toLowerCase();
+        const phone = (bInfo?.phone || toPrimitive(l.borrower_phone) || toPrimitive(l.meta?.borrower_phone) || '').toLowerCase();
+        return loanId.includes(q) || productDisp.includes(q) || currency.includes(q) || name.includes(q) || email.includes(q) || phone.includes(q);
+      });
+    }
+    return list;
+  }, [loans, search, statusFilter, productFilter, currencyFilter, productIdToName, borrowerIdToInfo]);
+
+  const currencies = useMemo(() => {
+    const set = new Set();
+    loans.forEach(l => {
+      const c = toPrimitive(l.loan_currency) || toPrimitive(l.meta?.loan_currency);
+      if (c) set.add(String(c));
+    });
+    return Array.from(set);
+  }, [loans]);
+
+  const productNames = useMemo(() => {
+    const set = new Set();
+    products.forEach(p => { const n = p.product_name || p.title?.rendered; if (n) set.add(String(n)); });
+    return Array.from(set);
+  }, [products]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLoans.length / perPage));
+  const currentPage = Math.min(page, totalPages);
+  const pagedLoans = useMemo(() => {
+    const start = (currentPage - 1) * perPage;
+    return filteredLoans.slice(start, start + perPage);
+  }, [filteredLoans, currentPage, perPage]);
+
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
@@ -155,8 +220,69 @@ const LoansActive = ({ token, setCurrentView }) => {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      <div className="overflow-x-auto">
+    <div>
+      {/* Search and Filter Section to match Borrower List */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Search Loans</label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                value={search}
+                onChange={(e)=>{ setSearch(e.target.value); setPage(1); }}
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Search by loan ID, borrower, email, phone, product, currency"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
+            <select value={statusFilter} onChange={(e)=>{ setStatusFilter(e.target.value); setPage(1); }} className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+              <option value="all">All Statuses</option>
+              <option value="publish">Published</option>
+              <option value="draft">Draft</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Product</label>
+            <select value={productFilter} onChange={(e)=>{ setProductFilter(e.target.value); setPage(1); }} className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+              <option value="all">All Products</option>
+              {productNames.map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Currency</label>
+            <select value={currencyFilter} onChange={(e)=>{ setCurrencyFilter(e.target.value); setPage(1); }} className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+              <option value="all">All Currencies</option>
+              {currencies.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200 text-sm text-gray-600">
+          <div>
+            Showing {filteredLoans.length === 0 ? '0' : ((currentPage-1)*perPage + 1)}-{Math.min(currentPage*perPage, filteredLoans.length)} of {filteredLoans.length} loans
+            {(search || statusFilter !== 'all' || productFilter !== 'all' || currencyFilter !== 'all') && (
+              <span className="ml-2 text-blue-600">(filtered)</span>
+            )}
+          </div>
+          {(search || statusFilter !== 'all' || productFilter !== 'all' || currencyFilter !== 'all') && (
+            <button onClick={()=>{ setSearch(''); setStatusFilter('all'); setProductFilter('all'); setCurrencyFilter('all'); setPage(1); }} className="text-sm text-gray-500 hover:text-gray-700 underline">Clear all filters</button>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -173,7 +299,7 @@ const LoansActive = ({ token, setCurrentView }) => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {loans.map(l => {
+            {pagedLoans.map(l => {
               const loanId = toPrimitive(l.loan_id) || toPrimitive(l.meta?.loan_id) || toPrimitive(l.title?.rendered, '-');
               let currency = toPrimitive(l.loan_currency) || toPrimitive(l.meta?.loan_currency) || '';
               const amountRaw = toPrimitive(l.loan_amount) || toPrimitive(l.meta?.loan_amount) || 0;
@@ -254,6 +380,29 @@ const LoansActive = ({ token, setCurrentView }) => {
             })}
           </tbody>
         </table>
+        </div>
+        <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm text-gray-700">
+          <span>Rows per page:</span>
+          <select value={perPage} onChange={(e)=>{ setPerPage(Number(e.target.value)); setPage(1); }} className="px-2 py-1 border border-gray-300 rounded">
+            {[10,25,50].map(n => (<option key={n} value={n}>{n}</option>))}
+          </select>
+          <span>
+            {filteredLoans.length === 0 ? '0' : ((currentPage-1)*perPage + 1)}-
+            {Math.min(currentPage*perPage, filteredLoans.length)} of {filteredLoans.length}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button onClick={()=> setPage(p => Math.max(1, p-1))} disabled={currentPage===1} className="px-2 py-1 border border-gray-300 rounded disabled:opacity-50">Prev</button>
+          {Array.from({ length: totalPages }).slice(0,5).map((_,i) => {
+            const pnum = i+1; // simple first 5 pages for now
+            return (
+              <button key={pnum} onClick={()=> setPage(pnum)} className={`px-2 py-1 border border-gray-300 rounded ${currentPage===pnum? 'bg-blue-50 border-blue-300 text-blue-700':''}`}>{pnum}</button>
+            );
+          })}
+          <button onClick={()=> setPage(p => Math.min(totalPages, p+1))} disabled={currentPage===totalPages} className="px-2 py-1 border border-gray-300 rounded disabled:opacity-50">Next</button>
+        </div>
+        </div>
       </div>
     </div>
   );

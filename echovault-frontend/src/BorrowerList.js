@@ -267,26 +267,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
               </select>
             </div>
 
-            {/* Per Page Selector */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Per Page
-              </label>
-              <select
-                value={perPage}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setPerPage(val);
-                  setCurrentPage(1);
-                }}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
+            
           </div>
 
           {/* Filter Actions */}
@@ -478,9 +459,26 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
               </table>
             </div>
             {/* Pagination Controls */}
-            <div className="px-6 py-4 flex items-center justify-between bg-white border-t border-gray-200">
-              <div className="text-sm text-gray-600">
-                Page {currentPage} of {totalPages}
+            <div className="px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white border-t border-gray-200">
+              <div className="flex items-center gap-3 text-sm text-gray-700">
+                <span>Rows per page:</span>
+                <select
+                  value={perPage}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setPerPage(val);
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 border border-gray-300 rounded"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>
+                  {totalItems === 0 ? '0' : (startIdx + 1)}-{endIdx} of {totalItems}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <button

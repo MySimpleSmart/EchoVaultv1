@@ -361,7 +361,14 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
         </div>
       )}
 
-      {activeTab !== 'Summary' && activeTab !== 'Repayment Schedule' && (
+      {activeTab === 'Note' && (
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Note</h3>
+          <div className="text-gray-900 whitespace-pre-wrap">{((loan.loan_note || loan.meta?.loan_note || '').toString().trim()) || 'No note saved.'}</div>
+        </div>
+      )}
+
+      {activeTab !== 'Summary' && activeTab !== 'Repayment Schedule' && activeTab !== 'Note' && (
         <div className="bg-white rounded-lg border p-8 text-center text-gray-500">{activeTab} coming soon.</div>
       )}
     </div>

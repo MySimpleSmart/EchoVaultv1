@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import ConfirmationModal from './components/ConfirmationModal';
 import SuccessMessage from './components/SuccessMessage';
 import { getVerificationStatus } from './utils/verification';
 
@@ -26,6 +27,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState({ show: false, message: '', type: 'success' });
   const [step, setStep] = useState(1);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [pendingExitAction, setPendingExitAction] = useState(null);
 
   const [borrowers, setBorrowers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -51,7 +54,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     start_date: '',
     end_date: '',
     loan_disbursement_account: '',
-    loan_repayment_account: ''
+    loan_repayment_account: '',
+    loan_note: ''
   });
 
   const activeProducts = useMemo(() => products.filter(p => {
@@ -68,6 +72,33 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
 
   const selectedProduct = useMemo(() => activeProducts.find(p => String(p.id) === String(form.loan_product)), [activeProducts, form.loan_product]);
   const borrowerObj = useMemo(() => borrowers.find(b => String(b.id) === String(form.borrower)), [borrowers, form.borrower]);
+
+  const isDirty = useMemo(() => {
+    return (
+      !!form.borrower || !!form.loan_product || !!form.loan_term || !!form.loan_amount || !!form.start_date ||
+      !!form.loan_disbursement_account || !!form.loan_repayment_account || !!form.loan_note || !!collateralFile || !!loanContractFile
+    );
+  }, [form, collateralFile, loanContractFile]);
+
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
+
+  const attemptExit = (action) => {
+    if (isDirty) {
+      setPendingExitAction(() => action);
+      setShowExitConfirm(true);
+    } else {
+      action();
+    }
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -224,7 +255,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     if (s === 3) return missingStep3().length === 0;
     if (s === 4) return true; // collateral optional
     if (s === 5) return true; // contract optional
-    if (s === 6) return validate() === '';
+    if (s === 6) return true; // note optional
+    if (s === 7) return validate() === '';
     return true;
   };
 
@@ -242,7 +274,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       const miss = missingStep3();
       return miss.length ? `Provide: ${miss.join(', ')}` : '';
     }
-    if (s === 6) return validate();
+    if (s === 7) return validate();
     return '';
   };
 
@@ -459,11 +491,17 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         loan_repayment_account_bsb: repayBSB || '',
         loan_repayment_account_number: repayNumber || ''
       };
+      if (form.loan_note) {
+        data.loan_note = form.loan_note;
+      }
       Object.entries(data).forEach(([k, v]) => fd.append(k, v));
       // Also include as meta for backends expecting meta[...] keys
       fd.append('meta[loan_currency]', form.loan_currency);
       fd.append('meta[loan_interest]', form.loan_interest);
       fd.append('meta[loan_id]', form.loan_id);
+      if (form.loan_note) {
+        fd.append('meta[loan_note]', form.loan_note);
+      }
       if (selectedProduct) {
         fd.append('meta[loan_product_id]', String(selectedProduct.id));
         fd.append('meta[loan_product_name]', String(selectedProduct.product_name || ''));
@@ -587,6 +625,9 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         loan_repayment_account_bsb: repayBSB || '',
         loan_repayment_account_number: repayNumber || ''
       };
+      if (form.loan_note) {
+        data.loan_note = form.loan_note;
+      }
       Object.entries(data).forEach(([k, v]) => fd.append(k, v));
       if (selectedProduct) {
         fd.append('meta[loan_product_id]', String(selectedProduct.id));
@@ -620,7 +661,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   };
 
   const Stepper = () => {
-    const steps = ['Loan Form','Borrowers','Schedule','Collateral','Contract','Confirm'];
+    const steps = ['Loan Form','Borrowers','Schedule','Collateral','Contract','Note','Confirm'];
     const pct = ((step - 1) / (steps.length - 1)) * 100;
     return (
       <div className="mb-6">
@@ -864,10 +905,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 ))}
               </select>
             </div>
-            <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
+              <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setCurrentView('loans-active')} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Cancel</button>
-                <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                <button type="button" onClick={() => attemptExit(() => setCurrentView('loans-active'))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Cancel</button>
+                <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
               </div>
               <button type="button" disabled={missingStep1().length>0} onClick={() => setStep(2)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Borrower Details</button>
             </div>
@@ -887,7 +928,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => setStep(1)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
                 <button type="button" disabled={missingStep2().length>0} onClick={() => setStep(3)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Loan Schedule</button>
               </div>
@@ -952,7 +993,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => setStep(2)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
                 <button type="button" disabled={missingStep3().length>0} onClick={() => setStep(4)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Collateral</button>
               </div>
@@ -975,7 +1016,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => setStep(3)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
                 <button type="button" onClick={() => setStep(5)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Contract</button>
               </div>
@@ -1001,17 +1042,38 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => setStep(4)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
-                <button type="button" onClick={() => setStep(6)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Confirm</button>
+                <button type="button" onClick={() => setStep(6)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Note</button>
               </div>
             </>)}
 
             {step === 6 && (<>
+              <div className="md:col-span-2">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Note</h3>
+                <textarea
+                  name="loan_note"
+                  value={form.loan_note}
+                  onChange={onChange}
+                  rows={5}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Enter any notes about this loan"
+                />
+              </div>
+              <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setStep(5)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
+                </div>
+                <button type="button" onClick={() => setStep(7)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Confirm</button>
+              </div>
+            </>)}
+
+            {step === 7 && (<>
               <div className="md:col-span-2 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-gray-900">Confirm Loan</h3>
-                  <span className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 border border-blue-200">Step 6 of 6</span>
+                  <span className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 border border-blue-200">Step 7 of 7</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div className="p-4 border rounded-lg bg-gray-50">
@@ -1051,12 +1113,16 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                       </div>
                     </div>
                   </div>
+                  <div className="p-4 border rounded-lg bg-gray-50 md:col-span-3">
+                    <div className="font-semibold text-gray-900 mb-2">Note</div>
+                    <div className="text-gray-900 whitespace-pre-wrap">{form.loan_note || '-'}</div>
+                  </div>
                 </div>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setStep(5)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
-                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                  <button type="button" onClick={() => setStep(6)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
                 <button type="submit" disabled={submitting || !!error} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
                   {submitting && (
@@ -1078,6 +1144,17 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         onClose={() => setSuccessMessage({ show: false, message: '', type: 'success' })}
         message={successMessage.message}
         type={successMessage.type}
+      />
+
+      <ConfirmationModal
+        isOpen={showExitConfirm}
+        onClose={() => { setShowExitConfirm(false); setPendingExitAction(null); }}
+        onConfirm={() => { setShowExitConfirm(false); const act = pendingExitAction; setPendingExitAction(null); act && act(); }}
+        title="Discard changes?"
+        message="You have unsaved changes. Are you sure you want to leave this page?"
+        confirmText="Leave Without Saving"
+        cancelText="Continue Editing"
+        type="warning"
       />
     </div>
   );
