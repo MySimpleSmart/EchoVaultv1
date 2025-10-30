@@ -34,6 +34,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   const [products, setProducts] = useState([]);
   const [systemAccounts, setSystemAccounts] = useState([]);
 
+  const [bankStatements, setBankStatements] = useState([]);
+  const [bankStatementsError, setBankStatementsError] = useState('');
   const [collateralFile, setCollateralFile] = useState(null);
   const [loanContractFile, setLoanContractFile] = useState(null);
   const [schedule, setSchedule] = useState([]);
@@ -356,6 +358,33 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     return parts.join(' • ');
   };
 
+  // Upload helpers for media to WordPress and return attachment IDs
+  const uploadMediaFile = async (file) => {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const resp = await fetch(`${apiBase}/wp/v2/media`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: fd,
+      mode: 'cors'
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      throw new Error(t || `Failed to upload ${file.name}`);
+    }
+    const json = await resp.json();
+    return json?.id;
+  };
+  const uploadBankStatementsToMedia = async () => {
+    if (!bankStatements || bankStatements.length === 0) return [];
+    const ids = [];
+    for (const f of bankStatements) {
+      const id = await uploadMediaFile(f);
+      if (id) ids.push(id);
+    }
+    return ids;
+  };
+
   useEffect(() => {
     // Recompute schedule when inputs change
     if (!form.loan_amount || !form.loan_term || !form.start_date || !selectedProduct) { setSchedule([]); return; }
@@ -419,6 +448,14 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     setSubmitting(true);
     try {
       const fd = new FormData();
+      // Upload bank statements to media first to get attachment IDs
+      let bankIds = [];
+      try {
+        bankIds = await uploadBankStatementsToMedia();
+      } catch (e) {
+        // Non-fatal: still allow creating loan even if uploads failed
+        console.error('Bank statement upload failed:', e);
+      }
 
       // Build disbursement snapshot (from JSON value)
       let disbLabel = '';
@@ -528,6 +565,15 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         fd.append('meta[repayment_account_bsb]', repayBSB);
         fd.append('meta[repayment_account_number]', repayNumber);
       }
+      if (bankIds && bankIds.length > 0) {
+        // Save for multiple backends: Pods/ACF/meta
+        bankIds.forEach(id => fd.append('meta[bank_statement][]', String(id)));
+        bankIds.forEach(id => fd.append('fields[bank_statement][]', String(id)));
+        fd.append('fields[bank_statement]', JSON.stringify(bankIds.map(String)));
+        fd.append('bank_statement', JSON.stringify(bankIds.map(String)));
+        bankIds.forEach(id => fd.append('bank_statement[]', String(id)));
+        fd.append('meta[bank_statement_count]', String(bankIds.length));
+      }
       if (collateralFile) fd.append('collateral', collateralFile);
       if (loanContractFile) fd.append('loan_contract', loanContractFile);
 
@@ -561,6 +607,13 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     setSavingDraft(true);
     try {
       const fd = new FormData();
+      // Upload bank statements to media to get IDs for draft as well
+      let bankIds = [];
+      try {
+        bankIds = await uploadBankStatementsToMedia();
+      } catch (e) {
+        console.error('Bank statement upload failed (draft):', e);
+      }
       // Disbursement snapshot
       let disbLabel = '';
       let disbName = '';
@@ -644,6 +697,14 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         fd.append('meta[borrower_email]', String(borrowerEmail));
         fd.append('meta[borrower_phone]', String(borrowerPhone));
       }
+      if (bankIds && bankIds.length > 0) {
+        bankIds.forEach(id => fd.append('meta[bank_statement][]', String(id)));
+        bankIds.forEach(id => fd.append('fields[bank_statement][]', String(id)));
+        fd.append('fields[bank_statement]', JSON.stringify(bankIds.map(String)));
+        fd.append('bank_statement', JSON.stringify(bankIds.map(String)));
+        bankIds.forEach(id => fd.append('bank_statement[]', String(id)));
+        fd.append('meta[bank_statement_count]', String(bankIds.length));
+      }
       if (collateralFile) fd.append('collateral', collateralFile);
       if (loanContractFile) fd.append('loan_contract', loanContractFile);
       const resp = await fetch(`${apiBase}/wp/v2/loans`, {
@@ -665,7 +726,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   };
 
   const Stepper = () => {
-    const steps = ['Loan Form','Borrowers','Schedule','Collateral','Contract','Note','Confirm'];
+    const steps = ['Loan Form','Borrowers','Schedule','Bank Statements','Collateral','Contract','Note','Confirm'];
     const pct = ((step - 1) / (steps.length - 1)) * 100;
     return (
       <div className="mb-6">
@@ -1001,11 +1062,78 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                   <button type="button" onClick={() => setStep(2)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
                   <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
-                <button type="button" disabled={missingStep3().length>0} onClick={() => setStep(4)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Collateral</button>
+                <button type="button" disabled={missingStep3().length>0} onClick={() => setStep(4)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Bank Statements</button>
               </div>
             </>)}
 
             {step === 4 && (<>
+              <div className="md:col-span-2">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Bank Statements</h3>
+                <div className="border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 bg-gray-50">
+                  <label className="w-full flex flex-col items-center cursor-pointer">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
+                    </svg>
+                    <span className="text-xs text-gray-600 mt-1">Click to upload PDF (max 5MB each)</span>
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      multiple
+                      onChange={(e)=>{
+                        setBankStatementsError('');
+                        const files = Array.from(e.target.files || []);
+                        const rejected = files.filter(f => f.type !== 'application/pdf' || f.size > 5 * 1024 * 1024);
+                        if (rejected.length) {
+                          setBankStatementsError('Only PDF files up to 5MB are allowed.');
+                        }
+                        const accepted = files.filter(f => f.type === 'application/pdf' && f.size <= 5 * 1024 * 1024);
+                        setBankStatements(prev => [...prev, ...accepted]);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                  {bankStatementsError && (
+                    <div className="mt-2 text-xs text-red-600">{bankStatementsError}</div>
+                  )}
+                  {bankStatements && bankStatements.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-sm font-medium text-gray-900 mb-2">Uploaded Files</div>
+                      <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+                        {bankStatements.map((f, idx) => {
+                          const sizeMb = (f.size / (1024*1024)).toFixed(2);
+                          return (
+                            <li key={idx} className="flex items-center justify-between px-3 py-2 text-sm">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                <div className="min-w-0">
+                                  <div className="truncate text-gray-900">{f.name}</div>
+                                  <div className="text-xs text-gray-500">{sizeMb} MB</div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => { const url = URL.createObjectURL(f); window.open(url, '_blank', 'noopener'); setTimeout(()=>URL.revokeObjectURL(url), 10000); }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
+                                <button type="button" onClick={() => setBankStatements(prev => prev.filter((_,i)=> i!==idx))} className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setStep(3)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
+                </div>
+                <button type="button" onClick={() => setStep(5)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Collateral</button>
+              </div>
+            </>)}
+
+            {step === 5 && (<>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Collateral (PDF)</label>
                 <label className="block border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 text-center cursor-pointer bg-gray-50">
@@ -1021,14 +1149,14 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setStep(3)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={() => setStep(4)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
                   <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
-                <button type="button" onClick={() => setStep(5)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Contract</button>
+                <button type="button" onClick={() => setStep(6)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Contract</button>
               </div>
             </>)}
 
-            {step === 5 && (<>
+            {step === 6 && (<>
               <div className="md:col-span-2">
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Contract</h3>
                 <div>
@@ -1047,14 +1175,14 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setStep(4)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={() => setStep(5)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
                   <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
-                <button type="button" onClick={() => setStep(6)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Note</button>
+                <button type="button" onClick={() => setStep(7)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Note</button>
               </div>
             </>)}
 
-            {step === 6 && (<>
+            {step === 7 && (<>
               <div className="md:col-span-2">
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Note</h3>
                 <textarea
@@ -1068,18 +1196,18 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setStep(5)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={() => setStep(6)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
                   <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
-                <button type="button" onClick={() => setStep(7)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Confirm</button>
+                <button type="button" onClick={() => setStep(8)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Confirm</button>
               </div>
             </>)}
 
-            {step === 7 && (<>
+            {step === 8 && (<>
               <div className="md:col-span-2 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-gray-900">Confirm Loan</h3>
-                  <span className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 border border-blue-200">Step 7 of 7</span>
+                  <span className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 border border-blue-200">Step 8 of 8</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div className="p-4 border rounded-lg bg-gray-50">
@@ -1128,7 +1256,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setStep(6)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={() => setStep(7)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
                   <button type="button" onClick={handleSaveDraft} disabled={savingDraft} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : (<span className="inline-flex items-center"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 3v8h10V3"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 13h10v8H7z"/></svg>Save as Draft</span>)}</button>
                 </div>
                 <button type="submit" disabled={submitting || !!error} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">

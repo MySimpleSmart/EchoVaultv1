@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
 const getCurrencySymbol = (c) => (c === 'MNT' ? '₮' : '$');
 
-const Tabs = ['Summary','Repayment Schedule','Collateral','Contract','Note','Settings'];
+const Tabs = ['Summary','Repayment Schedule','Bank Statements','Collateral','Contract','Note','Settings'];
 
 const toPrimitive = (val, fallback = '') => {
   if (val === null || val === undefined) return fallback;
@@ -35,6 +35,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
   const [coBorrower, setCoBorrower] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [bankMedia, setBankMedia] = useState([]);
 
   const load = async () => {
     if (!token || !loanId) return;
@@ -63,6 +64,26 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
       if (coStatus && /^yes$/i.test(String(coStatus)) && coId) {
         const cbResp = await fetch(`${apiBase}/wp/v2/borrower-profile/${coId}?context=edit`, { headers, mode: 'cors' });
         if (cbResp.ok) setCoBorrower(await cbResp.json());
+      }
+      // Load bank statements media if present
+      const bs = loanJson.meta?.bank_statement || loanJson.fields?.bank_statement || loanJson.acf?.bank_statement || loanJson.bank_statement;
+      let ids = [];
+      if (Array.isArray(bs)) ids = bs.map(toId).filter(Boolean);
+      else if (typeof bs === 'string') {
+        try {
+          const parsed = JSON.parse(bs);
+          if (Array.isArray(parsed)) ids = parsed.map(toId).filter(Boolean);
+        } catch (_) {
+          ids = bs.split(',').map(s => s.trim()).map(toId).filter(Boolean);
+        }
+      } else if (typeof bs === 'number') ids = [String(bs)];
+      if (ids.length) {
+        const medias = [];
+        for (const id of ids) {
+          const mResp = await fetch(`${apiBase}/wp/v2/media/${id}`, { headers, mode: 'cors' });
+          if (mResp.ok) medias.push(await mResp.json());
+        }
+        setBankMedia(medias);
       }
     } catch (e) {
       setError(e.message || 'Failed to load');
@@ -378,6 +399,32 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
         </div>
       )}
 
+      {activeTab === 'Bank Statements' && (
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Bank Statements</h3>
+          {(!bankMedia || bankMedia.length === 0) ? (
+            <div className="text-sm text-gray-600">No bank statements uploaded.</div>
+          ) : (
+            <ul className="divide-y divide-gray-200 rounded-md border border-gray-200">
+              {bankMedia.map(m => (
+                <li key={m.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="truncate text-gray-900">{m.title?.rendered || m.filename || `File #${m.id}`}</div>
+                    <div className="text-xs text-gray-500">{m.mime_type || m.post_mime_type}</div>
+                  </div>
+                  {m.source_url && (
+                    <div className="flex items-center gap-2">
+                      <a href={m.source_url} target="_blank" rel="noopener noreferrer" className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</a>
+                      <a href={m.source_url} download className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Download</a>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {activeTab === 'Note' && (
         <div className="bg-white rounded-lg border p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-3">Note</h3>
@@ -385,7 +432,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
         </div>
       )}
 
-      {activeTab !== 'Summary' && activeTab !== 'Repayment Schedule' && activeTab !== 'Note' && (
+      {activeTab !== 'Summary' && activeTab !== 'Repayment Schedule' && activeTab !== 'Note' && activeTab !== 'Bank Statements' && (
         <div className="bg-white rounded-lg border p-8 text-center text-gray-500">{activeTab} coming soon.</div>
       )}
     </div>
