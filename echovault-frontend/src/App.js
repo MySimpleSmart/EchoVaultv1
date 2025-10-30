@@ -5,6 +5,7 @@ import Header from './Header';
 import Dashboard from './Dashboard';
 import Loans from './Loans';
 import LoansActive from './LoansActive';
+import LoansDetail from './LoansDetail';
 import LoanProducts from './LoanProducts';
 import CreateLoan from './CreateLoan';
 import LoanContract from './LoanContract';
@@ -26,6 +27,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
+  const [selectedLoanId, setSelectedLoanId] = useState(null);
   const [deepLinkBorrowerId, setDeepLinkBorrowerId] = useState(null);
 
   useEffect(() => {
@@ -209,7 +211,22 @@ function App() {
                   </button>
                 </div>
               </div>
-              <LoansActive token={token} setCurrentView={setCurrentView} />
+              <LoansActive token={token} setCurrentView={(v) => {
+                if (typeof v === 'object' && v.view === 'loan-detail') {
+                  setSelectedLoanId(v.loanId);
+                  setCurrentView('loan-detail');
+                } else {
+                  setCurrentView(v);
+                }
+              }} />
+            </div>
+          )}
+          {currentView === 'loan-detail' && (
+            <div className="p-6">
+              <LoansDetail token={token} loanId={selectedLoanId} onBack={() => setCurrentView('loans-active')} onOpenBorrower={(id) => {
+                const url = `${window.location.origin}?view=borrower-detail&borrowerId=${id}`;
+                window.open(url, '_blank', 'noopener');
+              }} />
             </div>
           )}
           {currentView === 'loan-requests' && (

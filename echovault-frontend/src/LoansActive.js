@@ -241,7 +241,14 @@ const LoansActive = ({ token, setCurrentView }) => {
                       {status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">View Details</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <button
+                      onClick={() => setCurrentView({ view: 'loan-detail', loanId: l.id })}
+                      className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                    >
+                      View Details
+                    </button>
+                  </td>
                 </tr>
               );
             })}
