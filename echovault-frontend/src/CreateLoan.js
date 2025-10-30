@@ -22,6 +22,7 @@ const getWpAdminBase = () => {
 const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState({ show: false, message: '', type: 'success' });
   const [step, setStep] = useState(1);
@@ -145,6 +146,20 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   const maxTerm = selectedProduct?.term_max || '';
   const minAmount = selectedProduct?.min_amount || '';
   const maxAmount = selectedProduct?.max_amount || '';
+  const termMinNum = Number(minTerm || 0);
+  const termMaxNum = Number(maxTerm || 0);
+  const amountMinNum = Number(minAmount || 0);
+  const amountMaxNum = Number(maxAmount || 0);
+  const termOutOfRange =
+    (form.loan_term !== '' && form.loan_term !== null && Number(form.loan_term) > 0) && (
+      (termMinNum && Number(form.loan_term) < termMinNum) ||
+      (termMaxNum && Number(form.loan_term) > termMaxNum)
+    );
+  const amountOutOfRange =
+    (form.loan_amount !== '' && form.loan_amount !== null && Number(form.loan_amount) > 0) && (
+      (amountMinNum && Number(form.loan_amount) < amountMinNum) ||
+      (amountMaxNum && Number(form.loan_amount) > amountMaxNum)
+    );
 
   const borrowerDisbursementOptions = useMemo(() => {
     if (!borrowerObj) return [];
@@ -173,8 +188,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     if (!hasValue(form.borrower)) m.push('Borrower');
     if (!hasValue(form.loan_product)) m.push('Loan Product');
     // Validate core inputs where they are entered (step 1)
-    if (!(Number(form.loan_term) > 0)) m.push('Loan Term');
-    if (!(Number(form.loan_amount) > 0)) m.push('Loan Amount');
+    if (!(Number(form.loan_term) > 0) || termOutOfRange) m.push('Loan Term');
+    if (!(Number(form.loan_amount) > 0) || amountOutOfRange) m.push('Loan Amount');
     if (!hasValue(form.start_date)) m.push('Start Date');
     if (form.co_borrower_status === 'Yes' && !hasValue(form.co_borrower)) m.push('Co-borrower');
     return m;
@@ -196,8 +211,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   const isMissing = {
     borrower: !hasValue(form.borrower),
     loan_product: !hasValue(form.loan_product),
-    loan_term: !(Number(form.loan_term) > 0),
-    loan_amount: !(Number(form.loan_amount) > 0),
+    loan_term: !(Number(form.loan_term) > 0) || termOutOfRange,
+    loan_amount: !(Number(form.loan_amount) > 0) || amountOutOfRange,
     start_date: !hasValue(form.start_date),
     co_borrower: form.co_borrower_status === 'Yes' && !hasValue(form.co_borrower),
     loan_disbursement_account: (borrowerDisbursementOptions && borrowerDisbursementOptions.length > 0) && !hasValue(form.loan_disbursement_account),
@@ -494,6 +509,116 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     }
   };
 
+  const handleSaveDraft = async () => {
+    if (!token) return;
+    // Require at least one of Borrower or Loan Product before saving draft
+    if (!hasValue(form.borrower) && !hasValue(form.loan_product)) {
+      setError('Provide at least Borrower or Loan Product to save draft');
+      return;
+    }
+    setError('');
+    setSavingDraft(true);
+    try {
+      const fd = new FormData();
+      // Disbursement snapshot
+      let disbLabel = '';
+      let disbName = '';
+      let disbBank = '';
+      let disbBSB = '';
+      let disbNumber = '';
+      try {
+        const disb = form.loan_disbursement_account ? JSON.parse(form.loan_disbursement_account) : null;
+        if (disb) {
+          disbName = disb.accountName || '';
+          disbBank = Array.isArray(disb.bankName) ? (disb.bankName[0] || '') : (disb.bankName || '');
+          disbBSB = disb.bsb || '';
+          disbNumber = disb.accountNumber || '';
+          disbLabel = [disbName, disbBank, disbNumber, disbBSB && `BSB ${disbBSB}`].filter(Boolean).join(' • ');
+        }
+      } catch (_) {}
+      // Repayment snapshot
+      let repayName = '';
+      let repayBank = '';
+      let repayBSB = '';
+      let repayNumber = '';
+      const repayAcc = systemAccounts.find(a => String(a.id) === String(form.loan_repayment_account));
+      if (repayAcc) {
+        const country = Array.isArray(repayAcc.account_type) ? repayAcc.account_type[0] : repayAcc.account_type;
+        repayBank = country === 'Australia'
+          ? (Array.isArray(repayAcc.bank_name_au) ? repayAcc.bank_name_au[0] : repayAcc.bank_name_au)
+          : (Array.isArray(repayAcc.bank_name_mn) ? repayAcc.bank_name_mn[0] : repayAcc.bank_name_mn);
+        repayName = repayAcc.account_name || '';
+        repayBSB = repayAcc.bsb || '';
+        repayNumber = repayAcc.account_number || '';
+      }
+      // Borrower snapshot
+      const borrowerSnap = borrowers.find(b => String(b.id) === String(form.borrower));
+      const borrowerFirst = borrowerSnap ? (borrowerSnap.first_name || '') : '';
+      const borrowerLast = borrowerSnap ? (borrowerSnap.last_name || '') : '';
+      const borrowerEmail = borrowerSnap ? (borrowerSnap.email_address || '') : '';
+      const borrowerPhone = borrowerSnap ? (borrowerSnap.mobile_number || '') : '';
+      // Build payload (status draft)
+      const data = {
+        title: form.loan_id || 'Draft Loan',
+        status: 'draft',
+        loan_id: form.loan_id,
+        borrower: form.borrower,
+        borrower_name: [borrowerFirst, borrowerLast].filter(Boolean).join(' '),
+        co_borrower_status: form.co_borrower_status,
+        co_borrower: form.co_borrower || '',
+        loan_product: (selectedProduct && selectedProduct.product_name) ? selectedProduct.product_name : String(form.loan_product || ''),
+        loan_currency: form.loan_currency,
+        loan_interest: form.loan_interest,
+        loan_term: form.loan_term,
+        loan_amount: form.loan_amount,
+        repayment_method: form.repayment_method,
+        repayment_frequency: form.repayment_frequency,
+        repayment_type: form.repayment_type,
+        start_date: form.start_date,
+        end_date: form.end_date,
+        loan_disbursement_account: disbLabel || '',
+        loan_disbursement_account_name: disbName || '',
+        loan_disbursement_account_bank: disbBank || '',
+        loan_disbursement_account_bsb: disbBSB || '',
+        loan_disbursement_account_number: disbNumber || '',
+        loan_repayment_account: repayName ? `${repayName} • ${repayBank} • ${repayNumber}${repayBSB ? ` • BSB ${repayBSB}` : ''}` : String(form.loan_repayment_account || ''),
+        loan_repayment_account_name: repayName || '',
+        loan_repayment_account_bank: repayBank || '',
+        loan_repayment_account_bsb: repayBSB || '',
+        loan_repayment_account_number: repayNumber || ''
+      };
+      Object.entries(data).forEach(([k, v]) => fd.append(k, v));
+      if (selectedProduct) {
+        fd.append('meta[loan_product_id]', String(selectedProduct.id));
+        fd.append('meta[loan_product_name]', String(selectedProduct.product_name || ''));
+      }
+      if (borrowerSnap) {
+        fd.append('meta[borrower_id]', String(borrowerSnap.id));
+        fd.append('meta[borrower_first_name]', String(borrowerFirst));
+        fd.append('meta[borrower_last_name]', String(borrowerLast));
+        fd.append('meta[borrower_email]', String(borrowerEmail));
+        fd.append('meta[borrower_phone]', String(borrowerPhone));
+      }
+      if (collateralFile) fd.append('collateral', collateralFile);
+      if (loanContractFile) fd.append('loan_contract', loanContractFile);
+      const resp = await fetch(`${apiBase}/wp/v2/loans`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: fd,
+        mode: 'cors'
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || 'Failed to save draft');
+      }
+      setSuccessMessage({ show: true, message: 'Draft saved.', type: 'success' });
+    } catch (err) {
+      setError(err.message || 'Failed to save draft');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
   const Stepper = () => {
     const steps = ['Loan Form','Borrowers','Schedule','Collateral','Contract','Confirm'];
     const pct = ((step - 1) / (steps.length - 1)) * 100;
@@ -661,7 +786,9 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Loan Term (months)</label>
               <input name="loan_term" type="number" min={minTerm || 1} max={maxTerm || undefined} value={form.loan_term} onChange={onNumber} className={`w-full px-3 py-2 border rounded-md ${isMissing.loan_term && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required />
-              {(minTerm || maxTerm) && <p className="text-xs text-gray-500 mt-1">Allowed: {minTerm || '?'} - {maxTerm || '?'} months</p>}
+              {(minTerm || maxTerm) && (
+                <p className={`text-xs mt-1 ${termOutOfRange && step===1 ? 'text-red-600' : 'text-gray-500'}`}>Allowed: {minTerm || '?'} - {maxTerm || '?'} months</p>
+              )}
             </div>
 
             <div>
@@ -670,7 +797,11 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}</span>
                 <input name="loan_amount" type="number" min={minAmount || 0} max={maxAmount || undefined} value={form.loan_amount} onChange={onNumber} className={`w-full pl-8 pr-3 py-2 border rounded-md ${isMissing.loan_amount && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required />
               </div>
-              {(minAmount || maxAmount) && <p className="text-xs text-gray-500 mt-1">Range: {getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{minAmount || 0} - {getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{maxAmount || '∞'}</p>}
+              {(minAmount || maxAmount) && (
+                <p className={`text-xs mt-1 ${amountOutOfRange && step===1 ? 'text-red-600' : 'text-gray-500'}`}>
+                  Range: {getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{minAmount || 0} - {getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{maxAmount || '∞'}
+                </p>
+              )}
             </div>
 
             <div>
@@ -734,7 +865,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </select>
             </div>
             <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
-              <button type="button" onClick={() => setCurrentView('loans-active')} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Cancel</button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setCurrentView('loans-active')} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Cancel</button>
+                <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+              </div>
               <button type="button" disabled={missingStep1().length>0} onClick={() => setStep(2)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Borrower Details</button>
             </div>
             </>)}
@@ -751,7 +885,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 </div>
               )}
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
-                <button type="button" onClick={() => setStep(1)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setStep(1)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                </div>
                 <button type="button" disabled={missingStep2().length>0} onClick={() => setStep(3)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Loan Schedule</button>
               </div>
             </>)}
@@ -813,7 +950,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 )}
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
-                <button type="button" onClick={() => setStep(2)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setStep(2)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                </div>
                 <button type="button" disabled={missingStep3().length>0} onClick={() => setStep(4)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">Next: Collateral</button>
               </div>
             </>)}
@@ -833,7 +973,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 </label>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
-                <button type="button" onClick={() => setStep(3)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setStep(3)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                </div>
                 <button type="button" onClick={() => setStep(5)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Contract</button>
               </div>
             </>)}
@@ -856,7 +999,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 </div>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
-                <button type="button" onClick={() => setStep(4)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setStep(4)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft || (!hasValue(form.borrower) && !hasValue(form.loan_product))} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                </div>
                 <button type="button" onClick={() => setStep(6)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Next: Confirm</button>
               </div>
             </>)}
@@ -908,7 +1054,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 </div>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
-                <button type="button" onClick={() => setStep(5)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setStep(5)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Back</button>
+                  <button type="button" onClick={handleSaveDraft} disabled={savingDraft} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">{savingDraft ? 'Saving…' : 'Save as Draft'}</button>
+                </div>
                 <button type="submit" disabled={submitting || !!error} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2">
                   {submitting && (
                     <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
