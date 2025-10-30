@@ -51,6 +51,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     repayment_method: 'Equal Principal',
     repayment_frequency: 'Monthly',
     repayment_type: 'Graphical',
+    loan_status: 'Draft',
     start_date: '',
     end_date: '',
     loan_disbursement_account: '',
@@ -494,6 +495,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       if (form.loan_note) {
         data.loan_note = form.loan_note;
       }
+      data.loan_status = 'Active';
       Object.entries(data).forEach(([k, v]) => fd.append(k, v));
       // Also include as meta for backends expecting meta[...] keys
       fd.append('meta[loan_currency]', form.loan_currency);
@@ -502,6 +504,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       if (form.loan_note) {
         fd.append('meta[loan_note]', form.loan_note);
       }
+      fd.append('meta[loan_status]', 'Active');
       if (selectedProduct) {
         fd.append('meta[loan_product_id]', String(selectedProduct.id));
         fd.append('meta[loan_product_name]', String(selectedProduct.product_name || ''));
@@ -628,6 +631,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       if (form.loan_note) {
         data.loan_note = form.loan_note;
       }
+      data.loan_status = 'Draft';
       Object.entries(data).forEach(([k, v]) => fd.append(k, v));
       if (selectedProduct) {
         fd.append('meta[loan_product_id]', String(selectedProduct.id));
@@ -871,6 +875,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
               </select>
             </div>
 
+            {/* Loan status is set automatically based on action (draft vs confirm) */}
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
               <input name="start_date" type="date" value={form.start_date} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.start_date && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`} required />
@@ -1080,6 +1086,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                     <div className="font-semibold text-gray-900 mb-2">Loan Summary</div>
                     <div className="grid grid-cols-2 gap-y-1">
                       <div className="text-gray-500">Loan ID</div><div className="text-gray-900 font-medium">{form.loan_id}</div>
+                      <div className="text-gray-500">Status</div><div className="text-gray-900 font-medium">{form.loan_status}</div>
                       <div className="text-gray-500">Product</div><div className="text-gray-900 font-medium">{selectedProduct?.product_name}</div>
                       <div className="text-gray-500">Interest</div><div className="text-gray-900 font-medium">{form.loan_interest}%</div>
                       <div className="text-gray-500">Term</div><div className="text-gray-900 font-medium">{form.loan_term} months</div>

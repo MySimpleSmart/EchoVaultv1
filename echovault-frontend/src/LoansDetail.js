@@ -178,6 +178,20 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
   const currency = loan.loan_currency || loan.meta?.loan_currency || product?.currency || 'AUD';
   const borrowerIdResolved = toId(loan?.meta?.borrower_id) || toId(loan?.borrower) || toId(loan?.meta?.borrower) || toId(loan?.meta?.borrower_profile);
   const coBorrowerIdResolved = toId(loan?.meta?.co_borrower_id) || toId(loan?.co_borrower) || toId(loan?.meta?.co_borrower);
+  const rawStatus = ((loan.loan_status || loan.meta?.loan_status || loan.status || '')).toString();
+  const statusLower = rawStatus.toLowerCase();
+  let statusLabel = 'Unknown';
+  if (statusLower === 'publish') statusLabel = 'Active';
+  else if (statusLower === 'draft') statusLabel = 'Draft';
+  else if (['pending','active','inactive','closed','rejected'].includes(statusLower)) statusLabel = statusLower.charAt(0).toUpperCase() + statusLower.slice(1);
+  else statusLabel = rawStatus ? (rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1)) : '-';
+  const badgeClass = (/^active$/i).test(statusLabel) ? 'bg-green-100 text-green-800'
+    : (/^pending$/i).test(statusLabel) ? 'bg-blue-100 text-blue-800'
+    : (/^rejected$/i).test(statusLabel) ? 'bg-red-100 text-red-800'
+    : (/^inactive$/i).test(statusLabel) ? 'bg-gray-200 text-gray-800'
+    : (/^closed$/i).test(statusLabel) ? 'bg-purple-100 text-purple-800'
+    : (/^draft$/i).test(statusLabel) ? 'bg-yellow-100 text-yellow-800'
+    : 'bg-gray-100 text-gray-800';
 
   return (
     <div>
@@ -193,7 +207,10 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
             </svg>
           </button>
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Loan Details</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold text-gray-900">Loan Details</h2>
+              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClass}`}>{statusLabel}</span>
+            </div>
             <p className="text-gray-600">{loan.loan_id || loan.meta?.loan_id}</p>
           </div>
         </div>

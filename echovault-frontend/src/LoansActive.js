@@ -304,7 +304,21 @@ const LoansActive = ({ token, setCurrentView }) => {
               let currency = toPrimitive(l.loan_currency) || toPrimitive(l.meta?.loan_currency) || '';
               const amountRaw = toPrimitive(l.loan_amount) || toPrimitive(l.meta?.loan_amount) || 0;
               const amount = Number(amountRaw) || 0;
-              const status = toPrimitive(l.status, '-');
+              // Normalize status label and color
+              const rawStatus = (toPrimitive(l.loan_status) || toPrimitive(l.meta?.loan_status) || toPrimitive(l.status, '')).toString();
+              const statusLower = rawStatus.toLowerCase();
+              let statusLabel = 'Unknown';
+              if (statusLower === 'publish') statusLabel = 'Active';
+              else if (statusLower === 'draft') statusLabel = 'Draft';
+              else if (['pending','active','inactive','closed','rejected'].includes(statusLower)) statusLabel = statusLower.charAt(0).toUpperCase() + statusLower.slice(1);
+              else statusLabel = rawStatus ? (rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1)) : '-';
+              const badgeClass = (/^active$/i).test(statusLabel) ? 'bg-green-100 text-green-800'
+                : (/^pending$/i).test(statusLabel) ? 'bg-blue-100 text-blue-800'
+                : (/^rejected$/i).test(statusLabel) ? 'bg-red-100 text-red-800'
+                : (/^inactive$/i).test(statusLabel) ? 'bg-gray-200 text-gray-800'
+                : (/^closed$/i).test(statusLabel) ? 'bg-purple-100 text-purple-800'
+                : (/^draft$/i).test(statusLabel) ? 'bg-yellow-100 text-yellow-800'
+                : 'bg-gray-100 text-gray-800';
               let productDisp = toPrimitive(l.meta?.loan_product_name);
               if (!productDisp) {
                 const rawProd = toPrimitive(l.loan_product) || toPrimitive(l.meta?.loan_product);
@@ -363,8 +377,8 @@ const LoansActive = ({ token, setCurrentView }) => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{method || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{freq || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${status === 'publish' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {status}
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClass}`}>
+                      {statusLabel}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
