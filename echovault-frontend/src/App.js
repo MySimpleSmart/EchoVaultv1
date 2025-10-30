@@ -4,7 +4,9 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import Dashboard from './Dashboard';
 import Loans from './Loans';
+import LoansActive from './LoansActive';
 import LoanProducts from './LoanProducts';
+import CreateLoan from './CreateLoan';
 import LoanContract from './LoanContract';
 import BankAccounts from './BankAccounts';
 import Notes from './Notes';
@@ -24,6 +26,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
+  const [deepLinkBorrowerId, setDeepLinkBorrowerId] = useState(null);
 
   useEffect(() => {
     const savedToken = localStorage.getItem('jwt_token');
@@ -38,6 +41,14 @@ function App() {
         setUser(JSON.parse(savedUser));
       }
     }
+    // Support deep links like ?view=borrower-detail&borrowerId=123
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get('view');
+      const borrowerId = params.get('borrowerId');
+      if (view) setCurrentView(view);
+      if (borrowerId) setDeepLinkBorrowerId(borrowerId);
+    } catch (_) {}
   }, []);
 
   const handleLogin = (token, userData) => {
@@ -128,6 +139,18 @@ function App() {
     }
   }, [isLoggedIn, token]);
 
+  // Apply deep-linked borrower once list is loaded
+  useEffect(() => {
+    if (deepLinkBorrowerId && borrowers && borrowers.length > 0) {
+      const b = borrowers.find(x => String(x.id) === String(deepLinkBorrowerId));
+      if (b) {
+        setSelectedBorrower(b);
+        setCurrentView('borrower-detail');
+        setDeepLinkBorrowerId(null);
+      }
+    }
+  }, [deepLinkBorrowerId, borrowers]);
+
   // Show login form
   if (!isLoggedIn) {
     return <Login onLoginSuccess={handleLogin} />;
@@ -157,23 +180,14 @@ function App() {
           )}
           {currentView === 'loans-create' && (
             <div className="p-6">
-              <div className="mb-8">
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                  <div>
-                    <h1 className="text-2xl font-bold text-gray-900 mb-2">Create New Loan</h1>
-                    <p className="text-gray-600">Start a new loan for a borrower</p>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">Form coming soon</h3>
-                <p className="text-gray-500 max-w-md mx-auto">We will add the loan creation form here with borrower selection and product details.</p>
-              </div>
+              <CreateLoan 
+                token={token} 
+                setCurrentView={setCurrentView}
+                onOpenBorrower={(id) => {
+                  const url = `${window.location.origin}?view=borrower-detail&borrowerId=${id}`;
+                  window.open(url, '_blank', 'noopener');
+                }}
+              />
             </div>
           )}
           {currentView === 'loans-active' && (
@@ -195,26 +209,7 @@ function App() {
                   </button>
                 </div>
               </div>
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h10M5 19h14M7 6h10M12 3v3" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No active loans</h3>
-                <p className="text-gray-500 mb-2 max-w-md mx-auto">Active loans will appear here once loans are approved and disbursed.</p>
-                <div className="mt-6">
-                  <button
-                    onClick={() => setCurrentView('loans-create')}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium inline-flex items-center space-x-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    <span>Create New Loan</span>
-                  </button>
-                </div>
-              </div>
+              <LoansActive token={token} setCurrentView={setCurrentView} />
             </div>
           )}
           {currentView === 'loan-requests' && (

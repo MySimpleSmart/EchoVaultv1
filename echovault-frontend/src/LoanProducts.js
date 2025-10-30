@@ -33,6 +33,23 @@ const LoanProducts = ({ token }) => {
 
   const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
 
+  const firstVal = (v) => (Array.isArray(v) ? v[0] : v);
+  const parseInterest = (v) => {
+    if (v === null || v === undefined) return '';
+    const raw = String(firstVal(v)).trim();
+    if (raw === '') return '';
+    // Extract numeric portion (supports "12", "12.5", "12%", "12.5 %")
+    const match = raw.match(/[+-]?(?:\d+\.?\d*|\.\d+)/);
+    if (!match) return '';
+    const n = Number(match[0]);
+    return Number.isNaN(n) ? '' : n;
+  };
+  const normalizeNumber = (v) => {
+    if (v === null || v === undefined || v === '') return '';
+    const n = Number(firstVal(v));
+    return Number.isNaN(n) ? '' : n;
+  };
+
   const mapProduct = (raw) => {
     // Get the actual product_status from the custom field
     let productStatus = raw.product_status;
@@ -52,12 +69,14 @@ const LoanProducts = ({ token }) => {
       product_id: raw.product_id ?? '',
       product_name: raw.product_name ?? (raw.title?.rendered ?? ''),
       product_description: raw.product_description ?? (raw.content?.rendered ?? ''),
-      interest_rate: raw.interest_rate ?? '',
-      term_min: raw.term_min ?? '',
-      term_max: raw.term_max ?? '',
-      currency: raw.currency ?? 'AUD',
-      min_amount: raw.min_amount ?? '',
-      max_amount: raw.max_amount ?? '',
+      interest_rate: parseInterest(
+        raw.interest_rate ?? raw.meta?.interest_rate ?? raw.fields?.interest_rate ?? raw.acf?.interest_rate ?? ''
+      ),
+      term_min: normalizeNumber(raw.term_min ?? raw.meta?.term_min ?? raw.fields?.term_min ?? ''),
+      term_max: normalizeNumber(raw.term_max ?? raw.meta?.term_max ?? raw.fields?.term_max ?? ''),
+      currency: (Array.isArray(raw.currency) ? raw.currency[0] : (raw.currency ?? raw.meta?.currency ?? raw.fields?.currency)) || 'AUD',
+      min_amount: normalizeNumber(raw.min_amount ?? raw.meta?.min_amount ?? raw.fields?.min_amount ?? ''),
+      max_amount: normalizeNumber(raw.max_amount ?? raw.meta?.max_amount ?? raw.fields?.max_amount ?? ''),
       product_status: productStatus,
       date: raw.date
     };
