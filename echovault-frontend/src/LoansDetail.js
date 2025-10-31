@@ -498,7 +498,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
                   {m.source_url && (
                     <div className="flex items-center gap-2">
                       <a href={m.source_url} target="_blank" rel="noopener noreferrer" className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</a>
-                      <a href={m.source_url} download className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Download</a>
+                      <a href={m.source_url} target="_blank" rel="noopener noreferrer" download className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Download</a>
                     </div>
                   )}
                 </li>
