@@ -850,6 +850,7 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                         <th className="px-3 py-2 text-right font-medium text-gray-700">Amount</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-700">Status</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-700">Start</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -860,6 +861,18 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                           <td className="px-3 py-2 text-right">{l.loan_amount || l.meta?.loan_amount || '-'}</td>
                           <td className="px-3 py-2">{l.loan_status || l.meta?.loan_status || l.status || '-'}</td>
                           <td className="px-3 py-2">{l.start_date || l.meta?.start_date || '-'}</td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const url = `${window.location.origin}?view=loan-detail&loanId=${l.id}`;
+                                window.open(url, '_blank', 'noopener');
+                              }}
+                              className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                            >
+                              View Details
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

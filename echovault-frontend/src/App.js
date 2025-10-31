@@ -29,6 +29,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [selectedLoanId, setSelectedLoanId] = useState(null);
   const [deepLinkBorrowerId, setDeepLinkBorrowerId] = useState(null);
+  const [deepLinkLoanId, setDeepLinkLoanId] = useState(null);
 
   useEffect(() => {
     const savedToken = localStorage.getItem('jwt_token');
@@ -43,13 +44,15 @@ function App() {
         setUser(JSON.parse(savedUser));
       }
     }
-    // Support deep links like ?view=borrower-detail&borrowerId=123
+    // Support deep links like ?view=borrower-detail&borrowerId=123 or ?view=loan-detail&loanId=456
     try {
       const params = new URLSearchParams(window.location.search);
       const view = params.get('view');
       const borrowerId = params.get('borrowerId');
+      const loanId = params.get('loanId');
       if (view) setCurrentView(view);
       if (borrowerId) setDeepLinkBorrowerId(borrowerId);
+      if (loanId) setDeepLinkLoanId(loanId);
     } catch (_) {}
   }, []);
 
@@ -152,6 +155,15 @@ function App() {
       }
     }
   }, [deepLinkBorrowerId, borrowers]);
+
+  // Apply deep-linked loan when token present
+  useEffect(() => {
+    if (deepLinkLoanId) {
+      setSelectedLoanId(String(deepLinkLoanId));
+      setCurrentView('loan-detail');
+      setDeepLinkLoanId(null);
+    }
+  }, [deepLinkLoanId]);
 
   // Show login form
   if (!isLoggedIn) {
