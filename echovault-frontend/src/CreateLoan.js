@@ -75,6 +75,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
 
   const selectedProduct = useMemo(() => activeProducts.find(p => String(p.id) === String(form.loan_product)), [activeProducts, form.loan_product]);
   const borrowerObj = useMemo(() => borrowers.find(b => String(b.id) === String(form.borrower)), [borrowers, form.borrower]);
+  const coBorrowerOptions = useMemo(() => borrowers.filter(b => String(b.id) !== String(form.borrower)), [borrowers, form.borrower]);
 
   const isDirty = useMemo(() => {
     return (
@@ -158,6 +159,19 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       setForm(prev => ({ ...prev, loan_currency: '', loan_interest: '' }));
     }
   }, [selectedProduct]);
+
+  // Ensure co-borrower cannot be the same as the main borrower or remain set when status is No
+  useEffect(() => {
+    setForm(prev => {
+      if (prev.co_borrower_status !== 'Yes' && prev.co_borrower) {
+        return { ...prev, co_borrower: '' };
+      }
+      if (prev.co_borrower && String(prev.co_borrower) === String(prev.borrower)) {
+        return { ...prev, co_borrower: '' };
+      }
+      return prev;
+    });
+  }, [form.borrower, form.co_borrower_status]);
 
   useEffect(() => {
     if (form.start_date && form.loan_term) {
@@ -862,7 +876,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Co-borrower</label>
                 <select name="co_borrower" value={form.co_borrower} onChange={onChange} className={`w-full px-3 py-2 border rounded-md ${isMissing.co_borrower && step===1 ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`}>
                   <option value="">Select borrower</option>
-                  {borrowers.map(b => (
+                  {coBorrowerOptions.map(b => (
                     <option key={b.id} value={b.id}>{b.first_name} {b.last_name} ({b.email_address})</option>
                   ))}
                 </select>
