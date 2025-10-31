@@ -36,6 +36,8 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [bankMedia, setBankMedia] = useState([]);
+  const [collateralMedia, setCollateralMedia] = useState(null);
+  const [contractMedia, setContractMedia] = useState(null);
 
   const load = async () => {
     if (!token || !loanId) return;
@@ -147,6 +149,18 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
           if (mResp.ok) medias.push(await mResp.json());
         }
         setBankMedia(medias);
+      }
+      // Load collateral media if present
+      const colId = toId(loanJson.meta?.collateral || loanJson.fields?.collateral || loanJson.acf?.collateral || loanJson.collateral);
+      if (colId) {
+        const colResp = await fetch(`${apiBase}/wp/v2/media/${colId}`, { headers, mode: 'cors' });
+        if (colResp.ok) setCollateralMedia(await colResp.json());
+      }
+      // Load contract media if present
+      const conId = toId(loanJson.meta?.loan_contract || loanJson.fields?.loan_contract || loanJson.acf?.loan_contract || loanJson.loan_contract);
+      if (conId) {
+        const conResp = await fetch(`${apiBase}/wp/v2/media/${conId}`, { headers, mode: 'cors' });
+        if (conResp.ok) setContractMedia(await conResp.json());
       }
     } catch (e) {
       setError(e.message || 'Failed to load');
@@ -515,7 +529,55 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
         </div>
       )}
 
-      {activeTab !== 'Summary' && activeTab !== 'Repayment Schedule' && activeTab !== 'Note' && activeTab !== 'Bank Statements' && (
+      {activeTab === 'Collateral' && (
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Collateral</h3>
+          {collateralMedia ? (
+            <ul className="divide-y divide-gray-200 rounded-md border border-gray-200">
+              <li className="flex items-center justify-between px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate text-gray-900">{collateralMedia.title?.rendered || collateralMedia.filename || `File #${collateralMedia.id}`}</div>
+                  <div className="text-xs text-gray-500">{collateralMedia.mime_type || collateralMedia.post_mime_type}</div>
+                </div>
+                {collateralMedia.source_url && (
+                  <div className="flex items-center gap-2">
+                    <a href={collateralMedia.source_url} target="_blank" rel="noopener noreferrer" className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</a>
+                    <a href={collateralMedia.source_url} target="_blank" rel="noopener noreferrer" download className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Download</a>
+                  </div>
+                )}
+              </li>
+            </ul>
+          ) : (
+            <div className="text-sm text-gray-600">No collateral uploaded.</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'Contract' && (
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Loan Contract</h3>
+          {contractMedia ? (
+            <ul className="divide-y divide-gray-200 rounded-md border border-gray-200">
+              <li className="flex items-center justify-between px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate text-gray-900">{contractMedia.title?.rendered || contractMedia.filename || `File #${contractMedia.id}`}</div>
+                  <div className="text-xs text-gray-500">{contractMedia.mime_type || contractMedia.post_mime_type}</div>
+                </div>
+                {contractMedia.source_url && (
+                  <div className="flex items-center gap-2">
+                    <a href={contractMedia.source_url} target="_blank" rel="noopener noreferrer" className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</a>
+                    <a href={contractMedia.source_url} target="_blank" rel="noopener noreferrer" download className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Download</a>
+                  </div>
+                )}
+              </li>
+            </ul>
+          ) : (
+            <div className="text-sm text-gray-600">No loan contract uploaded.</div>
+          )}
+        </div>
+      )}
+
+      {activeTab !== 'Summary' && activeTab !== 'Repayment Schedule' && activeTab !== 'Note' && activeTab !== 'Bank Statements' && activeTab !== 'Collateral' && activeTab !== 'Contract' && (
         <div className="bg-white rounded-lg border p-8 text-center text-gray-500">{activeTab} coming soon.</div>
       )}
     </div>

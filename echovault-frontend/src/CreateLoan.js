@@ -470,6 +470,26 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         // Non-fatal: still allow creating loan even if uploads failed
         console.error('Bank statement upload failed:', e);
       }
+      
+      // Upload collateral to media if present
+      let collateralId = null;
+      try {
+        if (collateralFile) {
+          collateralId = await uploadMediaFile(collateralFile);
+        }
+      } catch (e) {
+        console.error('Collateral upload failed:', e);
+      }
+      
+      // Upload loan contract to media if present
+      let contractId = null;
+      try {
+        if (loanContractFile) {
+          contractId = await uploadMediaFile(loanContractFile);
+        }
+      } catch (e) {
+        console.error('Loan contract upload failed:', e);
+      }
 
       // Build disbursement snapshot (from JSON value)
       let disbLabel = '';
@@ -588,8 +608,16 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         bankIds.forEach(id => fd.append('bank_statement[]', String(id)));
         fd.append('meta[bank_statement_count]', String(bankIds.length));
       }
-      if (collateralFile) fd.append('collateral', collateralFile);
-      if (loanContractFile) fd.append('loan_contract', loanContractFile);
+      if (collateralId) {
+        fd.append('meta[collateral]', String(collateralId));
+        fd.append('fields[collateral]', String(collateralId));
+        fd.append('collateral', String(collateralId));
+      }
+      if (contractId) {
+        fd.append('meta[loan_contract]', String(contractId));
+        fd.append('fields[loan_contract]', String(contractId));
+        fd.append('loan_contract', String(contractId));
+      }
 
 
 
@@ -629,6 +657,24 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         bankIds = await uploadBankStatementsToMedia();
       } catch (e) {
         console.error('Bank statement upload failed (draft):', e);
+      }
+      // Upload collateral to media if present
+      let collateralId = null;
+      try {
+        if (collateralFile) {
+          collateralId = await uploadMediaFile(collateralFile);
+        }
+      } catch (e) {
+        console.error('Collateral upload failed (draft):', e);
+      }
+      // Upload loan contract to media if present
+      let contractId = null;
+      try {
+        if (loanContractFile) {
+          contractId = await uploadMediaFile(loanContractFile);
+        }
+      } catch (e) {
+        console.error('Loan contract upload failed (draft):', e);
       }
       // Disbursement snapshot
       let disbLabel = '';
@@ -721,8 +767,16 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         bankIds.forEach(id => fd.append('bank_statement[]', String(id)));
         fd.append('meta[bank_statement_count]', String(bankIds.length));
       }
-      if (collateralFile) fd.append('collateral', collateralFile);
-      if (loanContractFile) fd.append('loan_contract', loanContractFile);
+      if (collateralId) {
+        fd.append('meta[collateral]', String(collateralId));
+        fd.append('fields[collateral]', String(collateralId));
+        fd.append('collateral', String(collateralId));
+      }
+      if (contractId) {
+        fd.append('meta[loan_contract]', String(contractId));
+        fd.append('fields[loan_contract]', String(contractId));
+        fd.append('loan_contract', String(contractId));
+      }
       const resp = await fetch(`${apiBase}/wp/v2/loans`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -1150,18 +1204,39 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
             </>)}
 
             {step === 5 && (<>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Collateral (PDF)</label>
-                <label className="block border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 text-center cursor-pointer bg-gray-50">
-                  <div className="flex flex-col items-center">
+              <div className="md:col-span-2">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Collateral</h3>
+                <div className="border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 bg-gray-50">
+                  <label className="w-full flex flex-col items-center cursor-pointer">
                     <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
                     </svg>
-                    <span className="text-xs text-gray-600 mt-1">Click to upload PDF</span>
-                    {collateralFile && <span className="text-xs text-gray-500 mt-1">{collateralFile.name}</span>}
-                  </div>
-                  <input type="file" accept="application/pdf" onChange={(e)=>setCollateralFile(e.target.files?.[0]||null)} className="hidden" />
-                </label>
+                    <span className="text-xs text-gray-600 mt-1">Click to upload PDF (max 5MB)</span>
+                    <input type="file" accept="application/pdf" onChange={(e)=>setCollateralFile(e.target.files?.[0]||null)} className="hidden" />
+                  </label>
+                  {collateralFile && (
+                    <div className="mt-3">
+                      <div className="text-sm font-medium text-gray-900 mb-2">Uploaded File</div>
+                      <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+                        <li className="flex items-center justify-between px-3 py-2 text-sm">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            <div className="min-w-0">
+                              <div className="truncate text-gray-900">{collateralFile.name}</div>
+                              <div className="text-xs text-gray-500">{(collateralFile.size / (1024*1024)).toFixed(2)} MB</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button type="button" onClick={() => { const url = URL.createObjectURL(collateralFile); window.open(url, '_blank', 'noopener'); setTimeout(()=>URL.revokeObjectURL(url), 10000); }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
+                            <button type="button" onClick={() => setCollateralFile(null)} className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
+                          </div>
+                        </li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
                 <div className="flex items-center gap-2">
@@ -1175,18 +1250,36 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
             {step === 6 && (<>
               <div className="md:col-span-2">
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Contract</h3>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Loan Contract (PDF)</label>
-                  <label className="block border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 text-center cursor-pointer bg-gray-50">
-                    <div className="flex flex-col items-center">
-                      <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
-                      </svg>
-                      <span className="text-xs text-gray-600 mt-1">Click to upload PDF</span>
-                      {loanContractFile && <span className="text-xs text-gray-500 mt-1">{loanContractFile.name}</span>}
-                    </div>
+                <div className="border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-md p-4 bg-gray-50">
+                  <label className="w-full flex flex-col items-center cursor-pointer">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v9m0-9l3 3m-3-3l-3 3M12 3v9" />
+                    </svg>
+                    <span className="text-xs text-gray-600 mt-1">Click to upload PDF (max 5MB)</span>
                     <input type="file" accept="application/pdf" onChange={(e)=>setLoanContractFile(e.target.files?.[0]||null)} className="hidden" />
                   </label>
+                  {loanContractFile && (
+                    <div className="mt-3">
+                      <div className="text-sm font-medium text-gray-900 mb-2">Uploaded File</div>
+                      <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+                        <li className="flex items-center justify-between px-3 py-2 text-sm">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            <div className="min-w-0">
+                              <div className="truncate text-gray-900">{loanContractFile.name}</div>
+                              <div className="text-xs text-gray-500">{(loanContractFile.size / (1024*1024)).toFixed(2)} MB</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button type="button" onClick={() => { const url = URL.createObjectURL(loanContractFile); window.open(url, '_blank', 'noopener'); setTimeout(()=>URL.revokeObjectURL(url), 10000); }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
+                            <button type="button" onClick={() => setLoanContractFile(null)} className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
+                          </div>
+                        </li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="md:col-span-2 flex justify-between space-x-4 pt-6 border-t border-gray-200 mt-2">
