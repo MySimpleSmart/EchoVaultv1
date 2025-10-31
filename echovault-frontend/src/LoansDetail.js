@@ -52,11 +52,74 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
         const prodResp = await fetch(`${apiBase}/wp/v2/loan-product/${productId}?context=edit`, { headers, mode: 'cors' });
         if (prodResp.ok) setProduct(await prodResp.json());
       }
-      // Fetch borrower if possible
-      const borrowerId = toId(loanJson.meta?.borrower_id) || toId(loanJson.borrower) || toId(loanJson.meta?.borrower) || toId(loanJson.meta?.borrower_profile);
+      // Fetch borrower if possible - try multiple ways to extract borrower ID
+      let borrowerId = toId(loanJson.meta?.borrower_id) 
+        || toId(loanJson.borrower) 
+        || toId(loanJson.meta?.borrower) 
+        || toId(loanJson.meta?.borrower_profile);
+      
+      // Also check if borrower_id might be stored in fields or acf
+      if (!borrowerId) {
+        borrowerId = toId(loanJson.fields?.borrower_id) 
+          || toId(loanJson.acf?.borrower_id)
+          || toId(loanJson.fields?.borrower)
+          || toId(loanJson.acf?.borrower);
+      }
+      
+      // Check if borrower is embedded as object with id property
+      if (!borrowerId && loanJson.borrower && typeof loanJson.borrower === 'object' && !Array.isArray(loanJson.borrower)) {
+        borrowerId = toId(loanJson.borrower.id) || toId(loanJson.borrower.ID);
+      }
+      
+      console.log('LoansDetail: Extracted borrower ID:', borrowerId, 'from loan:', { 
+        meta_borrower_id: loanJson.meta?.borrower_id,
+        borrower: loanJson.borrower,
+        meta_borrower: loanJson.meta?.borrower,
+        meta_borrower_profile: loanJson.meta?.borrower_profile,
+        fields_borrower_id: loanJson.fields?.borrower_id,
+        acf_borrower_id: loanJson.acf?.borrower_id,
+        full_meta: loanJson.meta
+      });
+      
       if (borrowerId) {
-        const bResp = await fetch(`${apiBase}/wp/v2/borrower-profile/${borrowerId}?context=edit`, { headers, mode: 'cors' });
-        if (bResp.ok) setBorrower(await bResp.json());
+        try {
+          const bResp = await fetch(`${apiBase}/wp/v2/borrower-profile/${borrowerId}?context=edit`, { headers, mode: 'cors' });
+          if (bResp.ok) {
+            const borrowerData = await bResp.json();
+            console.log('LoansDetail: Successfully fetched borrower:', borrowerData);
+            setBorrower(borrowerData);
+          } else {
+            const errorText = await bResp.text();
+            console.error('LoansDetail: Failed to fetch borrower profile:', bResp.status, bResp.statusText, errorText);
+            console.log('LoansDetail: Loan has borrower meta fields:', {
+              borrower_first_name: loanJson.meta?.borrower_first_name,
+              borrower_last_name: loanJson.meta?.borrower_last_name,
+              borrower_email: loanJson.meta?.borrower_email,
+              borrower_phone: loanJson.meta?.borrower_phone,
+              borrower_name: loanJson.borrower_name
+            });
+            // Don't set error state, but log it - borrower details might still be available in loan meta
+          }
+        } catch (fetchError) {
+          console.error('LoansDetail: Error fetching borrower profile:', fetchError);
+          console.log('LoansDetail: Loan has borrower meta fields:', {
+            borrower_first_name: loanJson.meta?.borrower_first_name,
+            borrower_last_name: loanJson.meta?.borrower_last_name,
+            borrower_email: loanJson.meta?.borrower_email,
+            borrower_phone: loanJson.meta?.borrower_phone,
+            borrower_name: loanJson.borrower_name
+          });
+          // Don't set error state - borrower details might still be available in loan meta
+        }
+      } else {
+        console.warn('LoansDetail: No borrower ID found in loan data. Loan meta:', loanJson.meta);
+        console.log('LoansDetail: Checking for borrower info in loan directly:', {
+          borrower_name: loanJson.borrower_name,
+          borrower_first_name: loanJson.meta?.borrower_first_name,
+          borrower_last_name: loanJson.meta?.borrower_last_name,
+          borrower_email: loanJson.meta?.borrower_email,
+          borrower_phone: loanJson.meta?.borrower_phone
+        });
       }
       // Fetch co-borrower if selected
       const coStatus = toPrimitive(loanJson.co_borrower_status) || toPrimitive(loanJson.meta?.co_borrower_status);
@@ -197,7 +260,20 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
   if (!loan) return null;
 
   const currency = loan.loan_currency || loan.meta?.loan_currency || product?.currency || 'AUD';
-  const borrowerIdResolved = toId(loan?.meta?.borrower_id) || toId(loan?.borrower) || toId(loan?.meta?.borrower) || toId(loan?.meta?.borrower_profile);
+  // Try multiple ways to extract borrower ID (matching the load function logic)
+  let borrowerIdResolved = toId(loan?.meta?.borrower_id) 
+    || toId(loan?.borrower) 
+    || toId(loan?.meta?.borrower) 
+    || toId(loan?.meta?.borrower_profile);
+  if (!borrowerIdResolved) {
+    borrowerIdResolved = toId(loan?.fields?.borrower_id) 
+      || toId(loan?.acf?.borrower_id)
+      || toId(loan?.fields?.borrower)
+      || toId(loan?.acf?.borrower);
+  }
+  if (!borrowerIdResolved && loan?.borrower && typeof loan.borrower === 'object' && !Array.isArray(loan.borrower)) {
+    borrowerIdResolved = toId(loan.borrower.id) || toId(loan.borrower.ID);
+  }
   const coBorrowerIdResolved = toId(loan?.meta?.co_borrower_id) || toId(loan?.co_borrower) || toId(loan?.meta?.co_borrower);
   const rawStatus = ((loan.loan_status || loan.meta?.loan_status || loan.status || '')).toString();
   const statusLower = rawStatus.toLowerCase();
@@ -288,16 +364,23 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower }) => {
             </div>
             <div className="text-sm text-gray-900 font-medium">
               {(loan.borrower_name && String(loan.borrower_name).trim())
+                || toPrimitive(loan.meta?.borrower_name)
                 || [toPrimitive(loan.meta?.borrower_first_name), toPrimitive(loan.meta?.borrower_last_name)].filter(Boolean).join(' ')
                 || [toPrimitive(borrower?.first_name), toPrimitive(borrower?.last_name)].filter(Boolean).join(' ')
                 || toPrimitive(borrower?.title?.rendered) || '-'}
             </div>
-            <div className="text-xs text-gray-600">{toPrimitive(loan.meta?.borrower_email) || toPrimitive(borrower?.email_address) || ''}</div>
-            <div className="text-xs text-gray-600">{toPrimitive(loan.meta?.borrower_phone) || toPrimitive(borrower?.mobile_number) || ''}</div>
+            <div className="text-xs text-gray-600">{toPrimitive(loan.borrower_email) || toPrimitive(loan.meta?.borrower_email) || toPrimitive(borrower?.email_address) || ''}</div>
+            <div className="text-xs text-gray-600">{toPrimitive(loan.borrower_phone) || toPrimitive(loan.meta?.borrower_phone) || toPrimitive(borrower?.mobile_number) || ''}</div>
             <div className="grid grid-cols-1 gap-1 text-xs text-gray-600 mt-2">
-              {toPrimitive(borrower?.date_of_birth) && (<div><span className="text-gray-500">DOB: </span>{toPrimitive(borrower?.date_of_birth)}</div>)}
-              {toPrimitive(borrower?.home_address) && (<div><span className="text-gray-500">Address: </span>{toPrimitive(borrower?.home_address)}</div>)}
-              {toPrimitive(borrower?.employment_status) && (<div><span className="text-gray-500">Employment: </span>{toPrimitive(borrower?.employment_status)}</div>)}
+              {(toPrimitive(borrower?.date_of_birth) || toPrimitive(loan.meta?.borrower_date_of_birth)) && (
+                <div><span className="text-gray-500">DOB: </span>{toPrimitive(borrower?.date_of_birth) || toPrimitive(loan.meta?.borrower_date_of_birth)}</div>
+              )}
+              {(toPrimitive(borrower?.home_address) || toPrimitive(loan.meta?.borrower_home_address) || toPrimitive(loan.meta?.borrower_address)) && (
+                <div><span className="text-gray-500">Address: </span>{toPrimitive(borrower?.home_address) || toPrimitive(loan.meta?.borrower_home_address) || toPrimitive(loan.meta?.borrower_address)}</div>
+              )}
+              {(toPrimitive(borrower?.employment_status) || toPrimitive(loan.meta?.borrower_employment_status)) && (
+                <div><span className="text-gray-500">Employment: </span>{toPrimitive(borrower?.employment_status) || toPrimitive(loan.meta?.borrower_employment_status)}</div>
+              )}
             </div>
           </div>
           <div className="p-4 border rounded-lg bg-white">

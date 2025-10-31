@@ -577,6 +577,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       if (collateralFile) fd.append('collateral', collateralFile);
       if (loanContractFile) fd.append('loan_contract', loanContractFile);
 
+
+
       const resp = await fetch(`${apiBase}/wp/v2/loans`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
