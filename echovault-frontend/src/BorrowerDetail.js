@@ -10,6 +10,8 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
   const [activeTab, setActiveTab] = useState('general');
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+  const [activeLoans, setActiveLoans] = useState([]);
+  const [loadingActiveLoans, setLoadingActiveLoans] = useState(false);
 
   // Fetch media details if document_upload is a media ID
   useEffect(() => {
@@ -64,6 +66,43 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
 
     fetchMediaDetails();
   }, [borrower?.document_upload, borrower?.meta?.document_upload]);
+
+  // Load Active Loans from relationship/meta field on borrower (field group: active_loan)
+  useEffect(() => {
+    const loadLoans = async () => {
+      try {
+        setLoadingActiveLoans(true);
+        const raw = borrower?.active_loan || borrower?.meta?.active_loan || borrower?.fields?.active_loan || [];
+        let ids = [];
+        if (Array.isArray(raw)) {
+          ids = raw.map(v => (typeof v === 'object' && v?.ID) ? String(v.ID) : String(v)).filter(Boolean);
+        } else if (typeof raw === 'string') {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) ids = parsed.map(String);
+          } catch (_) {
+            ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+          }
+        } else if (raw) {
+          ids = [String(raw)];
+        }
+        if (!ids.length) { setActiveLoans([]); return; }
+        const token = localStorage.getItem('jwt_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const fetched = [];
+        for (const id of ids) {
+          try {
+            const resp = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/loans/${id}?context=edit`, { headers, mode: 'cors' });
+            if (resp.ok) fetched.push(await resp.json());
+          } catch (_) {}
+        }
+        setActiveLoans(fetched);
+      } finally {
+        setLoadingActiveLoans(false);
+      }
+    };
+    loadLoans();
+  }, [borrower?.active_loan, borrower?.meta?.active_loan]);
 
 
   if (!borrower) {
@@ -245,6 +284,17 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
               }`}
             >
               Bank Details
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('active_loans')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'active_loans'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Active Loans
             </button>
           </nav>
         </div>
@@ -772,6 +822,52 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Active Loans Tab */}
+        {activeTab === 'active_loans' && (
+          <div className="p-6">
+            <div className="space-y-4">
+              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Active Loans
+                </h3>
+              </div>
+              {loadingActiveLoans ? (
+                <div className="text-sm text-gray-600">Loading loans…</div>
+              ) : (activeLoans && activeLoans.length > 0) ? (
+                <div className="overflow-x-auto border rounded-md">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700">Loan ID</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700">Product</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700">Amount</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700">Status</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700">Start</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {activeLoans.map(l => (
+                        <tr key={l.id}>
+                          <td className="px-3 py-2 font-mono">{l.loan_id || l.meta?.loan_id || l.title?.rendered || `#${l.id}`}</td>
+                          <td className="px-3 py-2">{l.loan_product || l.meta?.loan_product_name || '-'}</td>
+                          <td className="px-3 py-2 text-right">{l.loan_amount || l.meta?.loan_amount || '-'}</td>
+                          <td className="px-3 py-2">{l.loan_status || l.meta?.loan_status || l.status || '-'}</td>
+                          <td className="px-3 py-2">{l.start_date || l.meta?.start_date || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600">No related active loans.</div>
+              )}
             </div>
           </div>
         )}
