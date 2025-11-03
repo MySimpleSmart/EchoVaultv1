@@ -20,7 +20,19 @@ const getWpAdminBase = () => {
   }
 };
 
-const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
+// Helper to extract ID from various formats (array/object/number/string)
+const toId = (val) => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'number' || typeof val === 'string') return String(val);
+  if (Array.isArray(val)) return toId(val[0]);
+  if (typeof val === 'object') {
+    if ('id' in val) return String(val.id);
+    if ('ID' in val) return String(val.ID);
+  }
+  return '';
+};
+
+const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -29,6 +41,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   const [step, setStep] = useState(1);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [pendingExitAction, setPendingExitAction] = useState(null);
+  const [isLoadingEditData, setIsLoadingEditData] = useState(false);
 
   const [borrowers, setBorrowers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -153,12 +166,173 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
   }, [token]);
 
   useEffect(() => {
+    // Skip auto-filling if we're loading edit data
+    if (isLoadingEditData) return;
+    
     if (selectedProduct) {
       setForm(prev => ({ ...prev, loan_currency: selectedProduct.currency || 'AUD', loan_interest: selectedProduct.interest_rate || '' }));
     } else {
       setForm(prev => ({ ...prev, loan_currency: '', loan_interest: '' }));
     }
-  }, [selectedProduct]);
+  }, [selectedProduct, isLoadingEditData]);
+
+  // Load existing loan data when editingLoan prop is provided
+  useEffect(() => {
+    if (!editingLoan || !borrowers.length || !products.length || !systemAccounts.length) return;
+    
+    setIsLoadingEditData(true);
+    try {
+      const loan = editingLoan;
+      
+      // Extract IDs using toId helper
+      const borrowerId = toId(loan.meta?.borrower_id) || toId(loan.borrower);
+      const coBorrowerId = toId(loan.meta?.co_borrower_id) || toId(loan.co_borrower) || '';
+      
+      // Try to get product ID - first from meta, then lookup by name
+      let productId = toId(loan.meta?.loan_product_id);
+      if (!productId && loan.loan_product) {
+        const productName = Array.isArray(loan.loan_product) ? loan.loan_product[0] : loan.loan_product;
+        const foundProduct = products.find(p => String(p.product_name) === String(productName));
+        if (foundProduct) productId = String(foundProduct.id);
+      }
+      
+      // Try to get repayment account ID - first from meta, then lookup by label
+      let repaymentAccountId = toId(loan.meta?.repayment_account_id);
+      if (!repaymentAccountId && loan.loan_repayment_account) {
+        const repayLabel = Array.isArray(loan.loan_repayment_account) ? loan.loan_repayment_account[0] : loan.loan_repayment_account;
+        // Try to find system account that matches the label
+        for (const acc of systemAccounts) {
+          const country = Array.isArray(acc.account_type) ? acc.account_type[0] : acc.account_type;
+          const bankName = country === 'Australia'
+            ? (Array.isArray(acc.bank_name_au) ? acc.bank_name_au[0] : acc.bank_name_au)
+            : (Array.isArray(acc.bank_name_mn) ? acc.bank_name_mn[0] : acc.bank_name_mn);
+          const accLabel = `${acc.account_name || ''} • ${bankName || ''} • ${acc.account_number || ''}${acc.bsb ? ` • BSB ${acc.bsb}` : ''}`;
+          if (accLabel && repayLabel && accLabel.trim() === repayLabel.trim()) {
+            repaymentAccountId = String(acc.id);
+            break;
+          }
+        }
+      }
+      
+      // Reconstruct disbursement account JSON from borrower data
+      let disbAccountJson = '';
+      const borrowerObj = borrowers.find(b => String(b.id) === String(borrowerId));
+      if (borrowerObj && (borrowerObj.account_name || borrowerObj.account_number)) {
+        const country = borrowerObj.account_type || borrowerObj.bank_country || '';
+        const bankName = country === 'Mongolia' 
+          ? (borrowerObj.bank_name_mn || borrowerObj.bank_name)
+          : (borrowerObj.bank_name || borrowerObj.bank_name_au);
+        
+        disbAccountJson = JSON.stringify({
+          accountName: borrowerObj.account_name || '',
+          bankName: bankName || '',
+          bsb: borrowerObj.bsb_number || borrowerObj.bsb || '',
+          accountNumber: borrowerObj.account_number || ''
+        });
+      }
+      
+      // Load loan data into form
+      setForm({
+        loan_id: loan.loan_id || loan.meta?.loan_id || 'EL-0000001',
+        borrower: borrowerId,
+        co_borrower_status: Array.isArray(loan.co_borrower_status) ? loan.co_borrower_status[0] : (loan.co_borrower_status || 'No'),
+        co_borrower: coBorrowerId,
+        loan_product: productId,
+        loan_currency: Array.isArray(loan.loan_currency) ? loan.loan_currency[0] : (loan.loan_currency || ''),
+        loan_interest: Array.isArray(loan.loan_interest) ? loan.loan_interest[0] : (loan.loan_interest || ''),
+        loan_term: Array.isArray(loan.loan_term) ? loan.loan_term[0] : (loan.loan_term || ''),
+        loan_amount: Array.isArray(loan.loan_amount) ? loan.loan_amount[0] : (loan.loan_amount || ''),
+        repayment_method: Array.isArray(loan.repayment_method) ? loan.repayment_method[0] : (loan.repayment_method || 'Equal Principal'),
+        repayment_frequency: Array.isArray(loan.repayment_frequency) ? loan.repayment_frequency[0] : (loan.repayment_frequency || 'Monthly'),
+        repayment_type: Array.isArray(loan.repayment_type) ? loan.repayment_type[0] : (loan.repayment_type || 'Graphical'),
+        loan_status: Array.isArray(loan.loan_status) ? loan.loan_status[0] : (loan.loan_status || 'Draft'),
+        start_date: loan.start_date || '',
+        end_date: loan.end_date || '',
+        loan_disbursement_account: disbAccountJson,
+        loan_repayment_account: repaymentAccountId,
+        loan_note: loan.loan_note || ''
+      });
+      
+      // Load bank statements if they exist
+      if (loan.meta?.bank_statement || loan.fields?.bank_statement || loan.bank_statement) {
+        const bankStatData = loan.bank_statement || loan.meta?.bank_statement || loan.fields?.bank_statement;
+        if (Array.isArray(bankStatData) && bankStatData.length > 0) {
+          // Check if items are already full media objects
+          if (typeof bankStatData[0] === 'object' && bankStatData[0].ID) {
+            // Already full objects, use directly
+            setBankStatements(bankStatData);
+          } else {
+            // String URLs or IDs, need to fetch
+            const rawIds = bankStatData;
+            const ids = rawIds.map(id => toId(id)).filter(Boolean);
+            if (ids.length > 0) {
+              const fetchBankStatements = async () => {
+                try {
+                  const mediaPromises = ids.map(id => 
+                    fetch(`${apiBase}/wp/v2/media/${id}`, {
+                      headers: { 'Authorization': `Bearer ${token}` },
+                      mode: 'cors'
+                    }).then(r => r.ok ? r.json() : null)
+                  );
+                  const mediaData = await Promise.all(mediaPromises);
+                  setBankStatements(mediaData.filter(Boolean));
+                } catch (e) {
+                  console.error('Failed to load bank statements:', e);
+                }
+              };
+              fetchBankStatements();
+            }
+          }
+        }
+      }
+      
+      // Load collateral file if it exists
+      const collateralId = toId(loan.meta?.collateral || loan.fields?.collateral || loan.collateral);
+      if (collateralId) {
+        const fetchCollateral = async () => {
+          try {
+            const colResp = await fetch(`${apiBase}/wp/v2/media/${collateralId}`, {
+              headers: { 'Authorization': `Bearer ${token}` },
+              mode: 'cors'
+            });
+            if (colResp.ok) {
+              const colData = await colResp.json();
+              setCollateralFile(colData);
+            }
+          } catch (e) {
+            console.error('Failed to load collateral:', e);
+          }
+        };
+        fetchCollateral();
+      }
+      
+      // Load loan contract file if it exists
+      const contractId = toId(loan.meta?.loan_contract || loan.fields?.loan_contract || loan.loan_contract);
+      if (contractId) {
+        const fetchContract = async () => {
+          try {
+            const conResp = await fetch(`${apiBase}/wp/v2/media/${contractId}`, {
+              headers: { 'Authorization': `Bearer ${token}` },
+              mode: 'cors'
+            });
+            if (conResp.ok) {
+              const conData = await conResp.json();
+              setLoanContractFile(conData);
+            }
+          } catch (e) {
+            console.error('Failed to load loan contract:', e);
+          }
+        };
+        fetchContract();
+      }
+      
+    } catch (err) {
+      console.error('Error loading editing loan:', err);
+      setError('Failed to load loan data for editing');
+    } finally {
+      setIsLoadingEditData(false);
+    }
+  }, [editingLoan, borrowers, products, systemAccounts, token]);
 
   // Ensure co-borrower cannot be the same as the main borrower or remain set when status is No
   useEffect(() => {
@@ -393,8 +567,16 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     if (!bankStatements || bankStatements.length === 0) return [];
     const ids = [];
     for (const f of bankStatements) {
-      const id = await uploadMediaFile(f);
-      if (id) ids.push(id);
+      // Check if it's already a media object with an ID (from editing existing draft)
+      if (typeof f === 'object' && (f.ID || f.id) && !(f instanceof File) && !(f instanceof Blob)) {
+        // Already uploaded media object, just use its ID
+        const existingId = f.ID || f.id;
+        if (existingId) ids.push(existingId);
+      } else if (f instanceof File || f instanceof Blob) {
+        // New file, upload it
+        const id = await uploadMediaFile(f);
+        if (id) ids.push(id);
+      }
     }
     return ids;
   };
@@ -475,7 +657,12 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       let collateralId = null;
       try {
         if (collateralFile) {
-          collateralId = await uploadMediaFile(collateralFile);
+          // Check if it's already a media object with an ID
+          if (typeof collateralFile === 'object' && (collateralFile.ID || collateralFile.id) && !(collateralFile instanceof File) && !(collateralFile instanceof Blob)) {
+            collateralId = collateralFile.ID || collateralFile.id;
+          } else if (collateralFile instanceof File || collateralFile instanceof Blob) {
+            collateralId = await uploadMediaFile(collateralFile);
+          }
         }
       } catch (e) {
         console.error('Collateral upload failed:', e);
@@ -485,7 +672,12 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       let contractId = null;
       try {
         if (loanContractFile) {
-          contractId = await uploadMediaFile(loanContractFile);
+          // Check if it's already a media object with an ID
+          if (typeof loanContractFile === 'object' && (loanContractFile.ID || loanContractFile.id) && !(loanContractFile instanceof File) && !(loanContractFile instanceof Blob)) {
+            contractId = loanContractFile.ID || loanContractFile.id;
+          } else if (loanContractFile instanceof File || loanContractFile instanceof Blob) {
+            contractId = await uploadMediaFile(loanContractFile);
+          }
         }
       } catch (e) {
         console.error('Loan contract upload failed:', e);
@@ -587,6 +779,9 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         fd.append('meta[borrower_email]', String(borrowerEmail));
         fd.append('meta[borrower_phone]', String(borrowerPhone));
       }
+      if (form.co_borrower) {
+        fd.append('meta[co_borrower_id]', String(form.co_borrower));
+      }
       if (disbName || disbBank || disbNumber || disbBSB) {
         fd.append('meta[disbursement_account_name]', disbName);
         fd.append('meta[disbursement_account_bank]', disbBank);
@@ -598,6 +793,9 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         fd.append('meta[repayment_account_bank]', repayBank);
         fd.append('meta[repayment_account_bsb]', repayBSB);
         fd.append('meta[repayment_account_number]', repayNumber);
+      }
+      if (form.loan_repayment_account) {
+        fd.append('meta[repayment_account_id]', String(form.loan_repayment_account));
       }
       if (bankIds && bankIds.length > 0) {
         // Save for multiple backends: Pods/ACF/meta
@@ -621,7 +819,9 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
 
 
 
-      const resp = await fetch(`${apiBase}/wp/v2/loans`, {
+      const loanId = editingLoan ? toId(editingLoan.id || editingLoan.ID) : null;
+      const url = loanId ? `${apiBase}/wp/v2/loans/${loanId}` : `${apiBase}/wp/v2/loans`;
+      const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: fd,
@@ -629,9 +829,9 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       });
       if (!resp.ok) {
         const txt = await resp.text();
-        throw new Error(txt || 'Failed to create loan');
+        throw new Error(txt || (editingLoan ? 'Failed to update loan' : 'Failed to create loan'));
       }
-      setSuccessMessage({ show: true, message: 'Loan created successfully!', type: 'success' });
+      setSuccessMessage({ show: true, message: editingLoan ? 'Loan updated successfully!' : 'Loan created successfully!', type: 'success' });
       setTimeout(() => setCurrentView('loans-active'), 900);
     } catch (err) {
       setError(err.message || 'Failed to create loan');
@@ -650,6 +850,8 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
     setError('');
     setSavingDraft(true);
     try {
+      // Get loan ID early for update logic
+      const loanId = editingLoan ? toId(editingLoan.id || editingLoan.ID) : null;
       const fd = new FormData();
       // Upload bank statements to media to get IDs for draft as well
       let bankIds = [];
@@ -662,7 +864,12 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       let collateralId = null;
       try {
         if (collateralFile) {
-          collateralId = await uploadMediaFile(collateralFile);
+          // Check if it's already a media object with an ID
+          if (typeof collateralFile === 'object' && (collateralFile.ID || collateralFile.id) && !(collateralFile instanceof File) && !(collateralFile instanceof Blob)) {
+            collateralId = collateralFile.ID || collateralFile.id;
+          } else if (collateralFile instanceof File || collateralFile instanceof Blob) {
+            collateralId = await uploadMediaFile(collateralFile);
+          }
         }
       } catch (e) {
         console.error('Collateral upload failed (draft):', e);
@@ -671,7 +878,12 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       let contractId = null;
       try {
         if (loanContractFile) {
-          contractId = await uploadMediaFile(loanContractFile);
+          // Check if it's already a media object with an ID
+          if (typeof loanContractFile === 'object' && (loanContractFile.ID || loanContractFile.id) && !(loanContractFile instanceof File) && !(loanContractFile instanceof Blob)) {
+            contractId = loanContractFile.ID || loanContractFile.id;
+          } else if (loanContractFile instanceof File || loanContractFile instanceof Blob) {
+            contractId = await uploadMediaFile(loanContractFile);
+          }
         }
       } catch (e) {
         console.error('Loan contract upload failed (draft):', e);
@@ -714,6 +926,7 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       const borrowerEmail = borrowerSnap ? (borrowerSnap.email_address || '') : '';
       const borrowerPhone = borrowerSnap ? (borrowerSnap.mobile_number || '') : '';
       // Build payload (status draft)
+      console.log('DEBUG: Form state before saving:', form);
       const data = {
         title: form.loan_id || 'Draft Loan',
         status: 'draft',
@@ -748,6 +961,14 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
       }
       data.loan_status = 'Draft';
       Object.entries(data).forEach(([k, v]) => fd.append(k, v));
+      // Also include as meta for backends expecting meta[...] keys
+      fd.append('meta[loan_currency]', form.loan_currency);
+      fd.append('meta[loan_interest]', form.loan_interest);
+      fd.append('meta[loan_id]', form.loan_id);
+      if (form.loan_note) {
+        fd.append('meta[loan_note]', form.loan_note);
+      }
+      fd.append('meta[loan_status]', 'Draft');
       if (selectedProduct) {
         fd.append('meta[loan_product_id]', String(selectedProduct.id));
         fd.append('meta[loan_product_name]', String(selectedProduct.product_name || ''));
@@ -759,7 +980,32 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         fd.append('meta[borrower_email]', String(borrowerEmail));
         fd.append('meta[borrower_phone]', String(borrowerPhone));
       }
-      if (bankIds && bankIds.length > 0) {
+      if (form.co_borrower) {
+        fd.append('meta[co_borrower_id]', String(form.co_borrower));
+      }
+      if (disbName || disbBank || disbNumber || disbBSB) {
+        fd.append('meta[disbursement_account_name]', disbName);
+        fd.append('meta[disbursement_account_bank]', disbBank);
+        fd.append('meta[disbursement_account_bsb]', disbBSB);
+        fd.append('meta[disbursement_account_number]', disbNumber);
+      }
+      if (repayName || repayBank || repayNumber || repayBSB) {
+        fd.append('meta[repayment_account_name]', repayName);
+        fd.append('meta[repayment_account_bank]', repayBank);
+        fd.append('meta[repayment_account_bsb]', repayBSB);
+        fd.append('meta[repayment_account_number]', repayNumber);
+      }
+      if (form.loan_repayment_account) {
+        fd.append('meta[repayment_account_id]', String(form.loan_repayment_account));
+      }
+      // Handle bank statements - always send array, even if empty (to clear when updating)
+      if (loanId && bankIds.length === 0) {
+        // When updating and no bank statements, explicitly clear them
+        fd.append('meta[bank_statement]', '');
+        fd.append('fields[bank_statement]', '[]');
+        fd.append('bank_statement', '[]');
+        fd.append('meta[bank_statement_count]', '0');
+      } else if (bankIds && bankIds.length > 0) {
         bankIds.forEach(id => fd.append('meta[bank_statement][]', String(id)));
         bankIds.forEach(id => fd.append('fields[bank_statement][]', String(id)));
         fd.append('fields[bank_statement]', JSON.stringify(bankIds.map(String)));
@@ -767,27 +1013,48 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
         bankIds.forEach(id => fd.append('bank_statement[]', String(id)));
         fd.append('meta[bank_statement_count]', String(bankIds.length));
       }
-      if (collateralId) {
+      
+      // Handle collateral - always send value when updating to preserve or clear
+      if (loanId && !collateralId) {
+        // When updating and no collateral, explicitly clear it
+        fd.append('meta[collateral]', '');
+        fd.append('fields[collateral]', '');
+        fd.append('collateral', '');
+      } else if (collateralId) {
         fd.append('meta[collateral]', String(collateralId));
         fd.append('fields[collateral]', String(collateralId));
         fd.append('collateral', String(collateralId));
       }
-      if (contractId) {
+      
+      // Handle contract - always send value when updating to preserve or clear
+      if (loanId && !contractId) {
+        // When updating and no contract, explicitly clear it
+        fd.append('meta[loan_contract]', '');
+        fd.append('fields[loan_contract]', '');
+        fd.append('loan_contract', '');
+      } else if (contractId) {
         fd.append('meta[loan_contract]', String(contractId));
         fd.append('fields[loan_contract]', String(contractId));
         fd.append('loan_contract', String(contractId));
       }
-      const resp = await fetch(`${apiBase}/wp/v2/loans`, {
-        method: 'POST',
+      console.log('DEBUG: Bank IDs, collateral, contract:', { bankIds, collateralId, contractId, dataKeys: Object.keys(data) });
+      const url = loanId ? `${apiBase}/wp/v2/loans/${loanId}` : `${apiBase}/wp/v2/loans`;
+      console.log('DEBUG: Saving draft:', { editingLoan: !!editingLoan, loanId, url, method: loanId ? 'POST' : 'POST' });
+      const resp = await fetch(url, {
+        method: loanId ? 'POST' : 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: fd,
         mode: 'cors'
       });
+      console.log('DEBUG: Save draft response:', { ok: resp.ok, status: resp.status, statusText: resp.statusText });
       if (!resp.ok) {
         const txt = await resp.text();
+        console.error('DEBUG: Save draft error:', txt);
         throw new Error(txt || 'Failed to save draft');
       }
-      setSuccessMessage({ show: true, message: 'Draft saved.', type: 'success' });
+      const responseData = await resp.json();
+      console.log('DEBUG: Save draft success:', responseData);
+      setSuccessMessage({ show: true, message: editingLoan ? 'Draft updated.' : 'Draft saved.', type: 'success' });
     } catch (err) {
       setError(err.message || 'Failed to save draft');
     } finally {
@@ -1170,7 +1437,9 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                       <div className="text-sm font-medium text-gray-900 mb-2">Uploaded Files</div>
                       <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
                         {bankStatements.map((f, idx) => {
-                          const sizeMb = (f.size / (1024*1024)).toFixed(2);
+                          const isFileObject = f instanceof File || f instanceof Blob;
+                          const sizeMb = isFileObject ? (f.size / (1024*1024)).toFixed(2) : '0.00';
+                          const fileName = isFileObject ? f.name : (f.title?.rendered || f.post_title || 'Bank Statement');
                           return (
                             <li key={idx} className="flex items-center justify-between px-3 py-2 text-sm">
                               <div className="flex items-center gap-3 min-w-0">
@@ -1178,12 +1447,26 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
                                 </svg>
                                 <div className="min-w-0">
-                                  <div className="truncate text-gray-900">{f.name}</div>
+                                  <div className="truncate text-gray-900">{fileName}</div>
                                   <div className="text-xs text-gray-500">{sizeMb} MB</div>
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => { const url = URL.createObjectURL(f); window.open(url, '_blank', 'noopener'); setTimeout(()=>URL.revokeObjectURL(url), 10000); }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
+                                <button type="button" onClick={() => {
+                                  if (isFileObject) {
+                                    const url = URL.createObjectURL(f);
+                                    window.open(url, '_blank', 'noopener');
+                                    setTimeout(() => URL.revokeObjectURL(url), 10000);
+                                  } else {
+                                    // Media object - try different URL fields
+                                    const url = f.source_url || f.guid?.rendered || f.guid?.raw || (typeof f.guid === 'string' ? f.guid : null);
+                                    if (url) {
+                                      window.open(url, '_blank', 'noopener');
+                                    } else {
+                                      console.error('No URL found for media:', f);
+                                    }
+                                  }
+                                }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
                                 <button type="button" onClick={() => setBankStatements(prev => prev.filter((_,i)=> i!==idx))} className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
                               </div>
                             </li>
@@ -1224,12 +1507,33 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
                             </svg>
                             <div className="min-w-0">
-                              <div className="truncate text-gray-900">{collateralFile.name}</div>
-                              <div className="text-xs text-gray-500">{(collateralFile.size / (1024*1024)).toFixed(2)} MB</div>
+                              <div className="truncate text-gray-900">
+                                {collateralFile instanceof File || collateralFile instanceof Blob 
+                                  ? collateralFile.name 
+                                  : (collateralFile.title?.rendered || collateralFile.filename || collateralFile.post_title || `File #${collateralFile.id || collateralFile.ID}`)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {collateralFile instanceof File || collateralFile instanceof Blob
+                                  ? `${(collateralFile.size / (1024*1024)).toFixed(2)} MB`
+                                  : (collateralFile.mime_type || collateralFile.post_mime_type || 'PDF')}
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => { const url = URL.createObjectURL(collateralFile); window.open(url, '_blank', 'noopener'); setTimeout(()=>URL.revokeObjectURL(url), 10000); }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
+                            <button type="button" onClick={() => {
+                              if (collateralFile instanceof File || collateralFile instanceof Blob) {
+                                const url = URL.createObjectURL(collateralFile);
+                                window.open(url, '_blank', 'noopener');
+                                setTimeout(() => URL.revokeObjectURL(url), 10000);
+                              } else {
+                                const url = collateralFile.source_url || collateralFile.guid?.rendered || collateralFile.guid?.raw || (typeof collateralFile.guid === 'string' ? collateralFile.guid : null);
+                                if (url) {
+                                  window.open(url, '_blank', 'noopener');
+                                } else {
+                                  console.error('No URL found for collateral media:', collateralFile);
+                                }
+                              }
+                            }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
                             <button type="button" onClick={() => setCollateralFile(null)} className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
                           </div>
                         </li>
@@ -1268,12 +1572,33 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower }) => {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
                             </svg>
                             <div className="min-w-0">
-                              <div className="truncate text-gray-900">{loanContractFile.name}</div>
-                              <div className="text-xs text-gray-500">{(loanContractFile.size / (1024*1024)).toFixed(2)} MB</div>
+                              <div className="truncate text-gray-900">
+                                {loanContractFile instanceof File || loanContractFile instanceof Blob 
+                                  ? loanContractFile.name 
+                                  : (loanContractFile.title?.rendered || loanContractFile.filename || loanContractFile.post_title || `File #${loanContractFile.id || loanContractFile.ID}`)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {loanContractFile instanceof File || loanContractFile instanceof Blob
+                                  ? `${(loanContractFile.size / (1024*1024)).toFixed(2)} MB`
+                                  : (loanContractFile.mime_type || loanContractFile.post_mime_type || 'PDF')}
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => { const url = URL.createObjectURL(loanContractFile); window.open(url, '_blank', 'noopener'); setTimeout(()=>URL.revokeObjectURL(url), 10000); }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
+                            <button type="button" onClick={() => {
+                              if (loanContractFile instanceof File || loanContractFile instanceof Blob) {
+                                const url = URL.createObjectURL(loanContractFile);
+                                window.open(url, '_blank', 'noopener');
+                                setTimeout(() => URL.revokeObjectURL(url), 10000);
+                              } else {
+                                const url = loanContractFile.source_url || loanContractFile.guid?.rendered || loanContractFile.guid?.raw || (typeof loanContractFile.guid === 'string' ? loanContractFile.guid : null);
+                                if (url) {
+                                  window.open(url, '_blank', 'noopener');
+                                } else {
+                                  console.error('No URL found for contract media:', loanContractFile);
+                                }
+                              }
+                            }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">View</button>
                             <button type="button" onClick={() => setLoanContractFile(null)} className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
                           </div>
                         </li>

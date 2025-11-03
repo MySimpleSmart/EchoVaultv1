@@ -30,6 +30,7 @@ function App() {
   const [selectedLoanId, setSelectedLoanId] = useState(null);
   const [deepLinkBorrowerId, setDeepLinkBorrowerId] = useState(null);
   const [deepLinkLoanId, setDeepLinkLoanId] = useState(null);
+  const [editingLoan, setEditingLoan] = useState(null);
 
   useEffect(() => {
     const savedToken = localStorage.getItem('jwt_token');
@@ -196,11 +197,15 @@ function App() {
             <div className="p-6">
               <CreateLoan 
                 token={token} 
-                setCurrentView={setCurrentView}
+                setCurrentView={(view) => {
+                  setEditingLoan(null); // Clear editing loan when navigating away
+                  setCurrentView(view);
+                }}
                 onOpenBorrower={(id) => {
                   const url = `${window.location.origin}?view=borrower-detail&borrowerId=${id}`;
                   window.open(url, '_blank', 'noopener');
                 }}
+                editingLoan={editingLoan}
               />
             </div>
           )}
@@ -235,10 +240,19 @@ function App() {
           )}
           {currentView === 'loan-detail' && (
             <div className="p-6">
-              <LoansDetail token={token} loanId={selectedLoanId} onBack={() => setCurrentView('loans-active')} onOpenBorrower={(id) => {
-                const url = `${window.location.origin}?view=borrower-detail&borrowerId=${id}`;
-                window.open(url, '_blank', 'noopener');
-              }} />
+              <LoansDetail 
+                token={token} 
+                loanId={selectedLoanId} 
+                onBack={() => setCurrentView('loans-active')} 
+                onOpenBorrower={(id) => {
+                  const url = `${window.location.origin}?view=borrower-detail&borrowerId=${id}`;
+                  window.open(url, '_blank', 'noopener');
+                }}
+                onEditLoan={(loan) => {
+                  setEditingLoan(loan);
+                  setCurrentView('loans-create');
+                }}
+              />
             </div>
           )}
           {currentView === 'loan-requests' && (
