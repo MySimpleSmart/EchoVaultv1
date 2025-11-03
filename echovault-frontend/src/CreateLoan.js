@@ -926,7 +926,6 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
       const borrowerEmail = borrowerSnap ? (borrowerSnap.email_address || '') : '';
       const borrowerPhone = borrowerSnap ? (borrowerSnap.mobile_number || '') : '';
       // Build payload (status draft)
-      console.log('DEBUG: Form state before saving:', form);
       const data = {
         title: form.loan_id || 'Draft Loan',
         status: 'draft',
@@ -1037,23 +1036,19 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
         fd.append('fields[loan_contract]', String(contractId));
         fd.append('loan_contract', String(contractId));
       }
-      console.log('DEBUG: Bank IDs, collateral, contract:', { bankIds, collateralId, contractId, dataKeys: Object.keys(data) });
       const url = loanId ? `${apiBase}/wp/v2/loans/${loanId}` : `${apiBase}/wp/v2/loans`;
-      console.log('DEBUG: Saving draft:', { editingLoan: !!editingLoan, loanId, url, method: loanId ? 'POST' : 'POST' });
       const resp = await fetch(url, {
         method: loanId ? 'POST' : 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: fd,
         mode: 'cors'
       });
-      console.log('DEBUG: Save draft response:', { ok: resp.ok, status: resp.status, statusText: resp.statusText });
       if (!resp.ok) {
         const txt = await resp.text();
-        console.error('DEBUG: Save draft error:', txt);
+        console.error('Save draft error:', txt);
         throw new Error(txt || 'Failed to save draft');
       }
       const responseData = await resp.json();
-      console.log('DEBUG: Save draft success:', responseData);
       setSuccessMessage({ show: true, message: editingLoan ? 'Draft updated.' : 'Draft saved.', type: 'success' });
     } catch (err) {
       setError(err.message || 'Failed to save draft');
