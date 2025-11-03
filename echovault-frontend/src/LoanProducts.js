@@ -3,6 +3,7 @@ import SuccessMessage from './components/SuccessMessage';
 
 const LoanProducts = ({ token }) => {
   const [products, setProducts] = useState([]);
+  const [relatedCountsByKey, setRelatedCountsByKey] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -64,6 +65,10 @@ const LoanProducts = ({ token }) => {
       productStatus = raw.status === 'publish' ? 'Active' : 'Inactive';
     }
     
+    // Resolve related_loans without forcing 0 so we can fallback to computed counts when missing
+    const rawRelated = (raw.related_loans ?? raw.meta?.related_loans ?? raw.fields?.related_loans);
+    const relatedNumeric = normalizeNumber(rawRelated);
+
     return {
       id: raw.id,
       product_id: raw.product_id ?? '',
@@ -77,6 +82,7 @@ const LoanProducts = ({ token }) => {
       currency: (Array.isArray(raw.currency) ? raw.currency[0] : (raw.currency ?? raw.meta?.currency ?? raw.fields?.currency)) || 'AUD',
       min_amount: normalizeNumber(raw.min_amount ?? raw.meta?.min_amount ?? raw.fields?.min_amount ?? ''),
       max_amount: normalizeNumber(raw.max_amount ?? raw.meta?.max_amount ?? raw.fields?.max_amount ?? ''),
+      related_loans: relatedNumeric === '' ? undefined : Number(relatedNumeric),
       product_status: productStatus,
       date: raw.date
     };
@@ -138,11 +144,91 @@ const LoanProducts = ({ token }) => {
       const data = await resp.json();
       const mapped = data.map(item => mapProduct(item));
       setProducts(mapped);
+      // After loading products, fetch active loans to compute related counts (by canonical key)
+      try {
+        const counts = await fetchRelatedActiveLoanCounts();
+        setRelatedCountsByKey(counts);
+        // Do not merge counts into product objects; compute at render time from counts map
+      } catch (_) {}
     } catch (e) {
       setError('Could not load loan products');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Ensure Pods fields are saved (Pods REST is authoritative for custom fields)
+  // No-op: previously used to sync Pods fields; disabled to avoid 404s
+  const setPodsProductFields = async () => {};
+
+  // Detect if Pods REST endpoints are available to avoid 404 noise
+  // Pods probing disabled to avoid 404 noise
+
+  // Removed backend sync of related loan counts; counts are computed live instead
+
+  const fetchRelatedActiveLoanCounts = async () => {
+    // Build canonical keys per loan: prefer ID, else product code (LP*), else name
+    // Keys example: 'id|123', 'code|LP000123', 'name|Industry Loan'
+    const countsByKey = {};
+    try {
+      const baseUrl = `${apiBase}/wp/v2/loans?per_page=100&context=edit&status=publish`;
+      const first = await fetch(baseUrl, { headers: { 'Authorization': `Bearer ${token}` }, mode: 'cors' });
+      if (!first.ok) return countsByKey;
+      const totalPages = Number(first.headers.get('X-WP-TotalPages') || '1');
+      const firstPage = await first.json();
+      const allLoans = [...(firstPage || [])];
+      for (let p = 2; p <= totalPages; p++) {
+        try {
+          const r = await fetch(`${baseUrl}&page=${p}`, { headers: { 'Authorization': `Bearer ${token}` }, mode: 'cors' });
+          if (r.ok) {
+            const j = await r.json();
+            allLoans.push(...(j || []));
+          }
+        } catch (_) {}
+      }
+      (allLoans || []).forEach(l => {
+        const rawId = (Array.isArray(l.meta?.loan_product_id) ? l.meta.loan_product_id[0] : l.meta?.loan_product_id)
+          || (Array.isArray(l.fields?.loan_product_id) ? l.fields.loan_product_id[0] : l.fields?.loan_product_id)
+          || (Array.isArray(l.acf?.loan_product_id) ? l.acf.loan_product_id[0] : l.acf?.loan_product_id)
+          || null;
+        const rawIdStr = rawId !== null && rawId !== undefined ? String(rawId).trim() : '';
+        const isNumericId = /^\d+$/.test(rawIdStr);
+        const isCode = /^LP\d+$/i.test(rawIdStr);
+
+        const pname = (Array.isArray(l.loan_product) ? l.loan_product[0] : l.loan_product)
+          || (Array.isArray(l.meta?.loan_product_name) ? l.meta.loan_product_name[0] : l.meta?.loan_product_name)
+          || (Array.isArray(l.fields?.loan_product_name) ? l.fields.loan_product_name[0] : l.fields?.loan_product_name)
+          || null;
+        const nameStr = pname ? String(pname).trim() : '';
+
+        let key = '';
+        if (isNumericId) key = `id|${rawIdStr}`;
+        else if (isCode) key = `code|${rawIdStr.toUpperCase()}`;
+        else if (nameStr) key = `name|${nameStr}`;
+
+        if (key) countsByKey[key] = (countsByKey[key] || 0) + 1;
+      });
+    } catch (_) {}
+    return countsByKey;
+  };
+
+  // Removed auto-refresh; counts update on initial load and on demand when needed
+
+  const getRelatedCountForProduct = (p) => {
+    // Try post ID, then product code, then name (no double counting since we chose one key at count time)
+    const idKey = `id|${p.id}`;
+    if (relatedCountsByKey[idKey] !== undefined) return relatedCountsByKey[idKey] || 0;
+    const code = (p.product_id || '').toString().trim().toUpperCase();
+    if (code) {
+      const codeKey = `code|${code}`;
+      if (relatedCountsByKey[codeKey] !== undefined) return relatedCountsByKey[codeKey] || 0;
+    }
+    const name = (p.product_name || '').toString().trim();
+    if (name) {
+      const nameKey = `name|${name}`;
+      if (relatedCountsByKey[nameKey] !== undefined) return relatedCountsByKey[nameKey] || 0;
+    }
+    return 0;
   };
 
   useEffect(() => {
@@ -203,12 +289,16 @@ const LoanProducts = ({ token }) => {
           currency: form.currency,
           min_amount: numeric(form.min_amount),
           max_amount: numeric(form.max_amount),
-          product_status: form.product_status
+          product_status: form.product_status,
+          meta: {
+            currency: form.currency
+          }
         }),
         mode: 'cors'
       });
       
       if (!resp.ok) throw new Error('Failed to create product');
+      const created = await resp.json();
       setSuccessMessage({ show: true, message: 'Loan product created successfully!', type: 'success' });
       setShowForm(false);
       setForm({
@@ -244,7 +334,12 @@ const LoanProducts = ({ token }) => {
         content: editForm.product_description,
         status: editForm.product_status === 'Active' ? 'publish' : 'draft',
         product_description: editForm.product_description,
-        product_status: editForm.product_status
+        product_status: editForm.product_status,
+        // Preserve currency so it isn't cleared by update
+        currency: selectedProduct?.currency,
+        meta: {
+          currency: selectedProduct?.currency
+        }
       };
       
       const resp = await fetch(`${apiBase}/wp/v2/loan-product/${selectedProduct.id}`, {
@@ -262,6 +357,7 @@ const LoanProducts = ({ token }) => {
         console.error('Update failed:', errorText);
         throw new Error('Failed to update product');
       }
+      // Pods sync disabled
       
       setSuccessMessage({ show: true, message: 'Product updated successfully!', type: 'success' });
       
@@ -499,15 +595,18 @@ const LoanProducts = ({ token }) => {
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Loan Products</h1>
             <p className="text-gray-600">Manage and view loan products and configurations</p>
           </div>
-          <button
-            onClick={handleCreateNew}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            <span>Create New Product</span>
-          </button>
+          <div className="flex gap-3 self-start sm:self-center">
+            
+            <button
+              onClick={handleCreateNew}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              <span>Create New Product</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -555,6 +654,9 @@ const LoanProducts = ({ token }) => {
                     Amount Range
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Related Active Loans
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -574,6 +676,7 @@ const LoanProducts = ({ token }) => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.term_min}-{p.term_max}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.currency}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{getCurrencySymbol(p.currency)}{p.min_amount} - {getCurrencySymbol(p.currency)}{p.max_amount}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{getRelatedCountForProduct(p)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.product_status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                         {p.product_status}
@@ -630,6 +733,10 @@ const LoanProducts = ({ token }) => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Amount Range</label>
                   <p className="text-sm text-gray-900">{getCurrencySymbol(selectedProduct.currency)}{selectedProduct.min_amount} - {getCurrencySymbol(selectedProduct.currency)}{selectedProduct.max_amount}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Related Active Loans</label>
+                  <p className="text-sm text-gray-900">{getRelatedCountForProduct(selectedProduct)}</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
