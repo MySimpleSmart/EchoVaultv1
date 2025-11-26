@@ -30,6 +30,9 @@ const BankAccounts = ({ token, setCurrentView }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [countryFilter, setCountryFilter] = useState('');
 
+  // API base URL with fallback
+  const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+
   // Bank options
   const australianBanks = [
     'Commonwealth Bank of Australia (CBA)',
@@ -84,7 +87,7 @@ const BankAccounts = ({ token, setCurrentView }) => {
     setError('');
     
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/bank-account-system?status=publish,draft&per_page=100`, {
+      const response = await fetch(`${apiBase}/wp/v2/bank-account-system?status=publish,draft&per_page=100`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -132,7 +135,7 @@ const BankAccounts = ({ token, setCurrentView }) => {
         account_status: formData.account_status ? 'Active' : 'Inactive'
       };
 
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/bank-account-system`, {
+      const response = await fetch(`${apiBase}/wp/v2/bank-account-system`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -211,7 +214,7 @@ const BankAccounts = ({ token, setCurrentView }) => {
         account_status: editForm.account_status ? 'Active' : 'Inactive'
       };
       
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/bank-account-system/${selectedAccount.id}`, {
+      const response = await fetch(`${apiBase}/wp/v2/bank-account-system/${selectedAccount.id}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

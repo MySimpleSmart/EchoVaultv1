@@ -35,7 +35,8 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
           setLoadingMedia(true);
           try {
             const token = localStorage.getItem('jwt_token');
-            const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media/${mediaId}`, {
+            const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+            const response = await fetch(`${apiBase}/wp/v2/media/${mediaId}`, {
               headers: {
                 'Authorization': `Bearer ${token}`
               },
@@ -90,9 +91,10 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
         const token = localStorage.getItem('jwt_token');
         const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
         const fetched = [];
+        const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
         for (const id of ids) {
           try {
-            const resp = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/loans/${id}?context=edit`, { headers, mode: 'cors' });
+            const resp = await fetch(`${apiBase}/wp/v2/loans/${id}?context=edit`, { headers, mode: 'cors' });
             if (resp.ok) fetched.push(await resp.json());
           } catch (_) {}
         }
@@ -153,7 +155,7 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
             </button>
             <div className="flex items-center">
               <img
-                src={getAvatarByBorrowerId(borrower.id)}
+                src={getAvatarByBorrowerId(borrower)}
                 alt={fullName}
                 className="w-16 h-16 rounded-full object-cover mr-4"
                 onError={(e) => {

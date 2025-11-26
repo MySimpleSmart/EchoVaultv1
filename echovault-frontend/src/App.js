@@ -105,7 +105,8 @@ function App() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`, {
+        const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+        const response = await fetch(`${apiBase}/wp/v2/borrower-profile`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -367,7 +368,9 @@ function App() {
             </div>
           )}
           {currentView === 'admin-profile' && (
-            <AdminProfile user={user} token={token} />
+            <div className="p-6">
+              <AdminProfile user={user} token={token} />
+            </div>
           )}
           {(currentView === 'dashboard' || currentView === 'borrowers' || currentView === 'create-borrower' || currentView === 'borrower-detail' || currentView === 'edit-borrower') && (
             <Dashboard

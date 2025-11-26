@@ -181,7 +181,7 @@ const Header = ({ onLogout, user, onNavigateToProfile }) => {
             >
               <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-100">
                 <img
-                  src={"https://echovault.space/wp-content/uploads/2025/10/monster-8.svg"}
+                  src="/avatars/monster (1).svg"
                   alt="Admin Avatar"
                   className="w-full h-full object-contain"
                 />

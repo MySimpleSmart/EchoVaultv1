@@ -17,6 +17,12 @@
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- API Configuration - Set API URL at runtime -->
+    <script>
+      // Set the API base URL for the WordPress backend
+      // This allows configuration without rebuilding the app
+      window.REACT_APP_API_URL = window.REACT_APP_API_URL || 'https://echovault.space/wp-json';
+    </script>
     <!--
       Notice the use of %PUBLIC_URL% in the tags above.
       It will be replaced with the URL of the `public` folder during the build.

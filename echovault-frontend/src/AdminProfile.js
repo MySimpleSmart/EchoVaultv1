@@ -177,7 +177,7 @@ const AdminProfile = ({ user, token }) => {
           <div className="flex items-center space-x-4">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
               <img 
-                src="https://echovault.space/wp-content/uploads/2025/10/monster-8.svg" 
+                src="/avatars/monster (1).svg" 
                 alt="Admin Avatar" 
                 className="w-full h-full object-contain"
               />

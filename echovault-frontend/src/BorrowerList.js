@@ -118,6 +118,9 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
     setCurrentPage(page);
   };
 
+  // API base URL with fallback
+  const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+
   const fetchBorrowers = async () => {
     try {
       const token = localStorage.getItem('jwt_token');
@@ -128,7 +131,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
         return;
       }
 
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`, {
+      const response = await fetch(`${apiBase}/wp/v2/borrower-profile`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -375,7 +378,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <img
-                              src={getAvatarByBorrowerId(borrower.id)}
+                              src={getAvatarByBorrowerId(borrower)}
                               alt={fullName}
                               className="w-10 h-10 rounded-full object-cover"
                               onError={(e) => {

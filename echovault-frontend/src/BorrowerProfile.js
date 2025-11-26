@@ -3,6 +3,7 @@ import './BorrowerProfile.css';
 import ConfirmationModal from './components/ConfirmationModal';
 import SuccessMessage from './components/SuccessMessage';
 import DocumentViewer from './components/DocumentViewer';
+import { getRandomAvatar } from './utils/avatars';
 
 const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrower, isEditing }) => {
   const [formData, setFormData] = useState({
@@ -125,10 +126,13 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
   }, [isEditing, editingBorrower]);
 
 
+  // API base URL with fallback
+  const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+
   const fetchMediaDetails = async (mediaId) => {
     try {
       const token = localStorage.getItem('jwt_token');
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media/${mediaId}`, {
+      const response = await fetch(`${apiBase}/wp/v2/media/${mediaId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         },
@@ -245,7 +249,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         return;
       }
 
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`, {
+      const response = await fetch(`${apiBase}/wp/v2/borrower-profile`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -297,7 +301,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       const token = localStorage.getItem('jwt_token');
       if (token) {
         try {
-          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`, {
+          const response = await fetch(`${apiBase}/wp/v2/borrower-profile`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -366,7 +370,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
           // Check if username exists and generate unique one
           while (true) {
             try {
-              const checkResponse = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/users?search=${username}`, {
+              const checkResponse = await fetch(`${apiBase}/wp/v2/users?search=${username}`, {
                 headers: {
                   'Authorization': `Bearer ${token}`,
                   'Content-Type': 'application/json',
@@ -420,7 +424,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         };
 
         // Create WordPress user
-        const userResponse = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/users`, {
+        const userResponse = await fetch(`${apiBase}/wp/v2/users`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -462,7 +466,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
             setUploadProgress(prev => Math.min(prev + 10, 90));
           }, 200);
 
-          const mediaResponse = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media`, {
+          const mediaResponse = await fetch(`${apiBase}/wp/v2/media`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`
@@ -533,7 +537,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       if (!isEditing && !borrowerId) {
         // Generate EV0000001 format
         try {
-          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile?per_page=100&orderby=id&order=desc`, {
+          const response = await fetch(`${apiBase}/wp/v2/borrower-profile?per_page=100&orderby=id&order=desc`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
@@ -586,10 +590,38 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       console.log('Generated Borrower ID:', borrowerId);
       console.log('Borrower Data being sent:', borrowerData);
 
-      // Also add borrower_id and document_upload as meta data to ensure they're saved
+      // Also add borrower_id, avatar, and document_upload as meta data to ensure they're saved
       borrowerData.meta = {
         borrower_id: borrowerId
       };
+      
+      // Assign random avatar for new borrowers, or keep existing avatar when editing
+      let avatarToSave = null;
+      if (!isEditing) {
+        // Generate random avatar for new borrowers
+        avatarToSave = getRandomAvatar();
+        console.log('Generated random avatar for new borrower:', avatarToSave);
+      } else if (editingBorrower) {
+        // Preserve existing avatar when editing
+        avatarToSave = editingBorrower.avatar || 
+                       editingBorrower.meta?.avatar || 
+                       editingBorrower.fields?.avatar ||
+                       (Array.isArray(editingBorrower.avatar) ? editingBorrower.avatar[0] : null) ||
+                       (Array.isArray(editingBorrower.meta?.avatar) ? editingBorrower.meta.avatar[0] : null);
+        console.log('Preserving existing avatar for edit:', avatarToSave);
+      }
+      
+      // Always set avatar (new, existing, or fallback)
+      if (!avatarToSave) {
+        // Fallback: generate one if somehow missing
+        avatarToSave = getRandomAvatar();
+        console.log('Using fallback avatar:', avatarToSave);
+      }
+      
+      // Set avatar in both top-level and meta to ensure it's saved
+      borrowerData.avatar = avatarToSave;
+      borrowerData.meta.avatar = avatarToSave;
+      console.log('Avatar being saved:', avatarToSave);
       
       // Add document upload to meta as well
       if (documentMediaId) {
@@ -623,8 +655,10 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         }
       });
       
-      // Debug final borrower data
+      // Debug final borrower data - specifically check avatar
       console.log('Final borrower data before API call:', borrowerData);
+      console.log('Avatar field in borrowerData:', borrowerData.avatar);
+      console.log('Avatar in meta:', borrowerData.meta?.avatar);
 
       // Add document upload if available
       if (documentMediaId) {
@@ -633,8 +667,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       }
 
       const url = isEditing 
-        ? `${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile/${editingBorrower.id}`
-        : `${process.env.REACT_APP_API_URL}/wp/v2/borrower-profile`;
+        ? `${apiBase}/wp/v2/borrower-profile/${editingBorrower.id}`
+        : `${apiBase}/wp/v2/borrower-profile`;
       
       const method = isEditing ? 'PUT' : 'POST';
       
@@ -655,6 +689,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       console.log('API Response:', data);
       console.log('Response Status:', response.status);
       console.log('Request Data Sent:', borrowerData);
+      console.log('Avatar in API Response:', data.avatar || data.meta?.avatar || data.fields?.avatar);
 
       if (response.ok && data.id) {
         const successMessage = isEditing 
@@ -663,8 +698,10 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         
         showSuccess(successMessage);
         
-        // Store the created/updated borrower ID for future reference
-        const profileWithId = { ...formData, id: data.id, userId: userId };
+        // Store the created/updated borrower ID for future reference, including avatar from response
+        const savedAvatar = data.avatar || data.meta?.avatar || data.fields?.avatar || borrowerData.avatar;
+        const profileWithId = { ...formData, id: data.id, userId: userId, avatar: savedAvatar };
+        console.log('Saved profile with avatar:', savedAvatar);
         localStorage.setItem('borrower_profile', JSON.stringify(profileWithId));
         
         // Call the callback to proceed to the next step

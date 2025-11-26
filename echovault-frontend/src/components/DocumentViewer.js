@@ -50,7 +50,8 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
         setLoading(true);
         try {
           const token = localStorage.getItem('jwt_token');
-          const response = await fetch(`${process.env.REACT_APP_API_URL}/wp/v2/media/${mediaId}`, {
+          const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+          const response = await fetch(`${apiBase}/wp/v2/media/${mediaId}`, {
             headers: {
               'Authorization': `Bearer ${token}`
             },
@@ -137,7 +138,8 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
 
   // Fallback: construct URL from WordPress site URL and file path
   if (!documentUrl && currentData.ID) {
-    const siteUrl = process.env.REACT_APP_API_URL?.replace('/wp-json', '') || window.location.origin;
+    const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+    const siteUrl = apiBase.replace('/wp-json', '') || window.location.origin;
     const uploadDate = currentData.post_date?.split(' ')[0]?.replace(/-/g, '/');
     
     // Handle different ID formats
