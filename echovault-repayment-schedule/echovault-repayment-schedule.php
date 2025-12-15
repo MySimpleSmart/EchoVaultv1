@@ -1633,8 +1633,18 @@ final class EchoVault_Loan_Schedule_API {
      * Handle register payment API request
      */
     public function handle_register_payment(WP_REST_Request $request): WP_REST_Response {
+        // Send CORS headers immediately
+        if (!headers_sent()) {
+            header('Access-Control-Allow-Origin: *', false);
+            header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS', false);
+            header('Access-Control-Allow-Headers: Authorization, Content-Type, Accept, X-Requested-With', false);
+        }
+        
         if ($request->get_method() === 'OPTIONS') {
-            return new WP_REST_Response(null, 200);
+            if (!headers_sent()) {
+                status_header(200);
+            }
+            exit(0);
         }
 
         try {
@@ -1649,6 +1659,8 @@ final class EchoVault_Loan_Schedule_API {
                 throw new WP_REST_Exception('invalid_params', 'Loan ID and Segment ID are required.', ['status' => 400]);
             }
 
+            error_log("EchoVault: Registering payment for loan $loan_id, segment $segment_id - interest: $paid_interest, principal: $paid_principles");
+
             // Update the segment
             $this->update_payment_segment($segment_id, $paid_interest, $paid_principles, $payment_date, $repayment_note);
 
@@ -1658,7 +1670,7 @@ final class EchoVault_Loan_Schedule_API {
             // Return updated schedule
             $schedule = $this->get_repayment_schedule_data($loan_id);
 
-            return new WP_REST_Response(
+            $response = new WP_REST_Response(
                 [
                     'success' => true,
                     'message' => 'Payment registered successfully.',
@@ -1666,8 +1678,11 @@ final class EchoVault_Loan_Schedule_API {
                 ],
                 200
             );
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
         } catch (WP_REST_Exception $e) {
-            return new WP_REST_Response(
+            error_log("EchoVault: WP_REST_Exception in handle_register_payment: " . $e->getMessage());
+            $response = new WP_REST_Response(
                 [
                     'success' => false,
                     'error' => $e->getMessage(),
@@ -1675,14 +1690,20 @@ final class EchoVault_Loan_Schedule_API {
                 ],
                 $e->getStatus()
             );
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
         } catch (Exception $e) {
-            return new WP_REST_Response(
+            error_log("EchoVault: Exception in handle_register_payment: " . $e->getMessage());
+            error_log("EchoVault: Stack trace: " . $e->getTraceAsString());
+            $response = new WP_REST_Response(
                 [
                     'success' => false,
                     'error' => 'Internal server error: ' . $e->getMessage(),
                 ],
                 500
             );
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
         }
     }
 
@@ -2138,105 +2159,111 @@ final class EchoVault_Loan_Schedule_API {
      * Update payment segment
      */
     private function update_payment_segment(int $segment_id, float $paid_interest, float $paid_principles, string $payment_date, string $note): void {
-        $segment = get_post($segment_id);
-        if (!$segment || $segment->post_type !== self::REPAYMENT_SCHEDULE_POST_TYPE) {
+        $this->ensure_table_exists();
+        global $wpdb;
+        $table_name = $this->get_table_name();
+        
+        // Get current segment data
+        $segment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE id = %d",
+            $segment_id
+        ), ARRAY_A);
+        
+        if (!$segment) {
             throw new WP_REST_Exception('segment_not_found', 'Repayment segment not found.', ['status' => 404]);
         }
 
-        $start_balance = floatval(get_post_meta($segment_id, 'start_balance', true) ?: 0);
-        $accrued_interest = floatval(get_post_meta($segment_id, 'accrued_interest', true) ?: 0);
-
-        $total_payment = $paid_interest + $paid_principles;
-        $outstanding_interest = max(0, $accrued_interest - $paid_interest);
-        $remain_balance = max(0, $start_balance - $paid_principles);
+        $start_balance = floatval($segment['start_balance']);
+        $accrued_interest = floatval($segment['accrued_interest']);
+        
+        // Add to existing payments (accumulate)
+        $existing_paid_interest = floatval($segment['paid_interest'] ?: 0);
+        $existing_paid_principles = floatval($segment['paid_principles'] ?: 0);
+        
+        $new_paid_interest = $existing_paid_interest + $paid_interest;
+        $new_paid_principles = $existing_paid_principles + $paid_principles;
+        $total_payment = $new_paid_interest + $new_paid_principles;
+        $outstanding_interest = max(0, $accrued_interest - $new_paid_interest);
+        $remain_balance = max(0, $start_balance - $new_paid_principles);
 
         // Determine status
         $repayment_status = 'Pending';
         if ($total_payment > 0) {
-            if ($paid_interest >= $accrued_interest && $paid_principles > 0) {
+            if ($new_paid_interest >= $accrued_interest && $new_paid_principles >= ($start_balance * 0.99)) {
                 $repayment_status = 'Paid';
             } elseif ($total_payment > 0) {
                 $repayment_status = 'Partial';
             }
         }
 
-        // Update post meta
-        update_post_meta($segment_id, 'paid_interest', round($paid_interest, 2));
-        update_post_meta($segment_id, 'paid_principles', round($paid_principles, 2));
-        update_post_meta($segment_id, 'total_payment', round($total_payment, 2));
-        update_post_meta($segment_id, 'outstanding_interest', round($outstanding_interest, 2));
-        update_post_meta($segment_id, 'remain_balance', round($remain_balance, 2));
-        update_post_meta($segment_id, 'repayment_status', $repayment_status);
-        if ($note) {
-            update_post_meta($segment_id, 'repayment_note', $note);
+        // Update custom table
+        $result = $wpdb->update(
+            $table_name,
+            [
+                'paid_interest' => round($new_paid_interest, 2),
+                'paid_principles' => round($new_paid_principles, 2),
+                'total_payment' => round($total_payment, 2),
+                'outstanding_interest' => round($outstanding_interest, 2),
+                'remain_balance' => round($remain_balance, 2),
+                'repayment_status' => $repayment_status,
+                'repayment_note' => $note,
+            ],
+            ['id' => $segment_id],
+            ['%f', '%f', '%f', '%f', '%f', '%s', '%s'],
+            ['%d']
+        );
+        
+        if ($result === false) {
+            error_log("EchoVault: Failed to update segment $segment_id: " . $wpdb->last_error);
+            throw new Exception('Failed to update payment segment');
         }
-
-        // Update via PODs if available
-        if (function_exists('pods')) {
-            $pod = pods(self::REPAYMENT_SCHEDULE_POST_TYPE, $segment_id);
-            if ($pod && $pod->id()) {
-                $pod->save([
-                    'paid_interest' => round($paid_interest, 2),
-                    'paid_principles' => round($paid_principles, 2),
-                    'total_payment' => round($total_payment, 2),
-                    'outstanding_interest' => round($outstanding_interest, 2),
-                    'remain_balance' => round($remain_balance, 2),
-                    'repayment_status' => $repayment_status,
-                    'repayment_note' => $note,
-                ]);
-            }
-        }
+        
+        error_log("EchoVault: Updated segment $segment_id - paid interest: $new_paid_interest, paid principal: $new_paid_principles, status: $repayment_status");
     }
 
     /**
      * Recalculate all future segments after a payment
      */
     private function recalculate_future_segments(int $loan_id, int $paid_segment_id): void {
+        $this->ensure_table_exists();
+        global $wpdb;
+        $table_name = $this->get_table_name();
+        
         // Get the paid segment to get the new balance
-        $paid_segment = get_post($paid_segment_id);
+        $paid_segment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE id = %d",
+            $paid_segment_id
+        ), ARRAY_A);
+        
         if (!$paid_segment) {
+            error_log("EchoVault: Paid segment $paid_segment_id not found for recalculation");
             return;
         }
 
-        $new_balance = floatval(get_post_meta($paid_segment_id, 'remain_balance', true) ?: 0);
-        $segment_end = get_post_meta($paid_segment_id, 'segment_end', true);
+        $new_balance = floatval($paid_segment['remain_balance']);
+        $segment_end = $paid_segment['segment_end'];
 
-        // Get loan interest rate
+        // Get loan interest rate from loan meta
         $loan_interest = floatval(get_post_meta($loan_id, 'loan_interest', true) ?: 0);
         $annual_rate = $loan_interest / 100;
-        $repayment_frequency = get_post_meta($loan_id, 'repayment_frequency', true) ?: 'Monthly';
-        if (is_array($repayment_frequency)) $repayment_frequency = $repayment_frequency[0];
 
-        // Get all future segments
-        $args = [
-            'post_type' => self::REPAYMENT_SCHEDULE_POST_TYPE,
-            'post_status' => 'any',
-            'meta_query' => [
-                [
-                    'key' => 'related_loan',
-                    'value' => $loan_id,
-                    'compare' => '=',
-                ],
-                [
-                    'key' => 'segment_start',
-                    'value' => $segment_end,
-                    'compare' => '>',
-                    'type' => 'DATE',
-                ],
-            ],
-            'orderby' => 'meta_value',
-            'meta_key' => 'segment_start',
-            'order' => 'ASC',
-            'posts_per_page' => -1,
-        ];
+        // Get all future segments (segment_start > paid_segment_end)
+        $future_segments = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $table_name 
+            WHERE related_loan = %d 
+            AND segment_start > %s 
+            ORDER BY segment_start ASC",
+            $loan_id,
+            $segment_end
+        ), ARRAY_A);
 
-        $query = new WP_Query($args);
         $current_balance = $new_balance;
+        error_log("EchoVault: Recalculating " . count($future_segments) . " future segments starting from balance: $current_balance");
 
-        foreach ($query->posts as $segment_post) {
-            $segment_id = $segment_post->ID;
-            $segment_start_str = get_post_meta($segment_id, 'segment_start', true);
-            $segment_end_str = get_post_meta($segment_id, 'segment_end', true);
+        foreach ($future_segments as $segment) {
+            $segment_id = $segment['id'];
+            $segment_start_str = $segment['segment_start'];
+            $segment_end_str = $segment['segment_end'];
 
             if (!$segment_start_str || !$segment_end_str) {
                 continue;
@@ -2249,36 +2276,33 @@ final class EchoVault_Loan_Schedule_API {
             // Recalculate accrued interest with new balance
             $accrued_interest = $this->calculate_accrued_interest($current_balance, $annual_rate, $loan_days);
 
-            // Update segment
-            update_post_meta($segment_id, 'start_balance', round($current_balance, 2));
-            update_post_meta($segment_id, 'accrued_interest', round($accrued_interest, 2));
-            
             // Recalculate outstanding interest
-            $paid_interest = floatval(get_post_meta($segment_id, 'paid_interest', true) ?: 0);
+            $paid_interest = floatval($segment['paid_interest'] ?: 0);
             $outstanding_interest = max(0, $accrued_interest - $paid_interest);
-            update_post_meta($segment_id, 'outstanding_interest', round($outstanding_interest, 2));
 
             // Update remain_balance
-            $paid_principles = floatval(get_post_meta($segment_id, 'paid_principles', true) ?: 0);
+            $paid_principles = floatval($segment['paid_principles'] ?: 0);
             $remain_balance = max(0, $current_balance - $paid_principles);
-            update_post_meta($segment_id, 'remain_balance', round($remain_balance, 2));
 
-            // Update via PODs if available
-            if (function_exists('pods')) {
-                $pod = pods(self::REPAYMENT_SCHEDULE_POST_TYPE, $segment_id);
-                if ($pod && $pod->id()) {
-                    $pod->save([
-                        'start_balance' => round($current_balance, 2),
-                        'accrued_interest' => round($accrued_interest, 2),
-                        'outstanding_interest' => round($outstanding_interest, 2),
-                        'remain_balance' => round($remain_balance, 2),
-                    ]);
-                }
-            }
+            // Update segment in custom table
+            $wpdb->update(
+                $table_name,
+                [
+                    'start_balance' => round($current_balance, 2),
+                    'accrued_interest' => round($accrued_interest, 2),
+                    'outstanding_interest' => round($outstanding_interest, 2),
+                    'remain_balance' => round($remain_balance, 2),
+                ],
+                ['id' => $segment_id],
+                ['%f', '%f', '%f', '%f'],
+                ['%d']
+            );
 
             // Update balance for next segment
             $current_balance = $remain_balance;
         }
+        
+        error_log("EchoVault: Recalculation complete");
     }
 
     /**
