@@ -93,29 +93,67 @@ final class EchoVault_Loan_Schedule_API {
             return new WP_REST_Response(null, 200);
         }
 
-        $data = $this->sanitize($request);
-        $this->validate($data);
+        try {
+            $data = $this->sanitize($request);
+            $this->validate($data);
 
-        $schedule = $this->build_schedule($data);
-        $summary  = $this->build_summary($schedule, $data['loan_amount']);
+            $schedule = $this->build_schedule($data);
+            $summary  = $this->build_summary($schedule, $data['loan_amount']);
 
-        return new WP_REST_Response(
-            [
-                'success'  => true,
-                'schedule' => $schedule,
-                'summary'  => $summary,
-            ],
-            200
-        );
+            return new WP_REST_Response(
+                [
+                    'success'  => true,
+                    'schedule' => $schedule,
+                    'summary'  => $summary,
+                    'debug'    => [
+                        'frequency' => $data['repayment_frequency'],
+                        'method'    => $data['repayment_method'],
+                        'periods'   => $this->period_count($data['loan_term'], $data['repayment_frequency']),
+                    ],
+                ],
+                200
+            );
+        } catch (WP_REST_Exception $e) {
+            return new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error'   => $e->getMessage(),
+                    'code'    => $e->getErrorCode(),
+                ],
+                $e->getStatus()
+            );
+        } catch (Exception $e) {
+            return new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error'   => 'Internal server error: ' . $e->getMessage(),
+                ],
+                500
+            );
+        }
     }
 
     private function sanitize(WP_REST_Request $request): array {
+        // Get raw frequency value and ensure it's a string
+        $frequency = $request->get_param('repayment_frequency');
+        if (is_array($frequency)) {
+            $frequency = $frequency[0] ?? 'Monthly';
+        }
+        $frequency = trim((string) $frequency);
+        
+        // Get raw method value and ensure it's a string
+        $method = $request->get_param('repayment_method');
+        if (is_array($method)) {
+            $method = $method[0] ?? 'Equal Principal';
+        }
+        $method = trim((string) $method);
+        
         return [
             'loan_amount'         => floatval($request->get_param('loan_amount')),
             'loan_term'           => intval($request->get_param('loan_term')),
             'loan_interest'       => floatval($request->get_param('loan_interest')),
-            'repayment_method'    => sanitize_text_field($request->get_param('repayment_method')),
-            'repayment_frequency' => sanitize_text_field($request->get_param('repayment_frequency')),
+            'repayment_method'    => $method,
+            'repayment_frequency' => $frequency,
             'start_date'          => sanitize_text_field($request->get_param('start_date')),
         ];
     }
@@ -130,18 +168,38 @@ final class EchoVault_Loan_Schedule_API {
         if ($payload['loan_interest'] < 0) {
             throw new WP_REST_Exception('invalid_interest', 'Interest rate cannot be negative.', ['status' => 400]);
         }
-        if (!in_array($payload['repayment_method'], ['Equal Principal', 'Equal Total', 'Interest-Only'], true)) {
-            throw new WP_REST_Exception('invalid_method', 'Unsupported repayment method.', ['status' => 400]);
+        
+        // Normalize method and frequency for comparison (case-insensitive)
+        $method = trim($payload['repayment_method']);
+        $frequency = trim($payload['repayment_frequency']);
+        
+        $validMethods = ['Equal Principal', 'Equal Total', 'Interest-Only'];
+        $validFrequencies = ['Weekly', 'Fortnightly', 'Monthly'];
+        
+        if (!in_array($method, $validMethods, true)) {
+            throw new WP_REST_Exception('invalid_method', 'Unsupported repayment method: ' . $method, ['status' => 400]);
         }
-        if (!in_array($payload['repayment_frequency'], ['Weekly', 'Fortnightly', 'Monthly'], true)) {
-            throw new WP_REST_Exception('invalid_frequency', 'Unsupported repayment frequency.', ['status' => 400]);
+        if (!in_array($frequency, $validFrequencies, true)) {
+            throw new WP_REST_Exception('invalid_frequency', 'Unsupported repayment frequency: ' . $frequency . '. Expected: Weekly, Fortnightly, or Monthly', ['status' => 400]);
         }
+        
         $date = DateTime::createFromFormat('Y-m-d', $payload['start_date']);
         if (!$date || $date->format('Y-m-d') !== $payload['start_date']) {
             throw new WP_REST_Exception('invalid_date', 'Start date must be YYYY-MM-DD.', ['status' => 400]);
         }
     }
 
+    /**
+     * Build the complete repayment schedule based on loan parameters.
+     * 
+     * Supports three repayment methods:
+     * - Equal Principal: Fixed principal payment per period, interest decreases over time
+     * - Equal Total: Fixed total payment per period (amortization formula)
+     * - Interest-Only: Pay only interest until final period, then principal + interest
+     * 
+     * @param array $payload Sanitized loan parameters
+     * @return array Array of schedule rows, each containing idx, date, payment, principal, interest, balance
+     */
     private function build_schedule(array $payload): array {
         $principal = $payload['loan_amount'];
         $periods   = $this->period_count($payload['loan_term'], $payload['repayment_frequency']);
@@ -155,7 +213,11 @@ final class EchoVault_Loan_Schedule_API {
         $balance = $principal;
         $start   = new DateTime($payload['start_date']);
 
+        // Equal Total Payment (Amortization)
+        // Formula: P = (P * r) / (1 - (1 + r)^(-n))
+        // Where P = principal, r = rate per period, n = number of periods
         if ($payload['repayment_method'] === 'Equal Total') {
+            // Handle zero interest rate case
             $payment = $rate == 0
                 ? $principal / $periods
                 : ($principal * $rate) / (1 - pow(1 + $rate, -$periods));
@@ -167,13 +229,21 @@ final class EchoVault_Loan_Schedule_API {
 
                 $rows[] = $this->row($i, $start, $payload['repayment_frequency'], $payment, $principal_paid, $interest, $balance);
             }
-        } elseif ($payload['repayment_method'] === 'Interest-Only') {
+        }
+        // Interest-Only Payment
+        // Pay only interest for all periods except the last, where principal + interest is paid
+        elseif ($payload['repayment_method'] === 'Interest-Only') {
             $interest_only = $balance * $rate;
+            // All periods except the last: pay only interest
             for ($i = 0; $i < $periods - 1; $i++) {
                 $rows[] = $this->row($i, $start, $payload['repayment_frequency'], $interest_only, 0, $interest_only, $balance);
             }
+            // Final period: pay interest + full principal
             $rows[] = $this->row($periods - 1, $start, $payload['repayment_frequency'], $interest_only + $balance, $balance, $interest_only, 0);
-        } else {
+        }
+        // Equal Principal Payment (Default)
+        // Fixed principal amount per period, interest calculated on remaining balance
+        else {
             $principal_per_period = $principal / $periods;
             for ($i = 0; $i < $periods; $i++) {
                 $interest = $balance * $rate;
@@ -187,6 +257,18 @@ final class EchoVault_Loan_Schedule_API {
         return array_values($rows);
     }
 
+    /**
+     * Create a single schedule row with payment date calculation.
+     * 
+     * @param int $index Zero-based period index
+     * @param DateTime $start Start date of the loan
+     * @param string $frequency Payment frequency (Weekly, Fortnightly, Monthly)
+     * @param float $payment Total payment amount for this period
+     * @param float $principal Principal portion of payment
+     * @param float $interest Interest portion of payment
+     * @param float $balance Remaining balance after this payment
+     * @return array Schedule row with idx, date (ISO 8601), payment, principal, interest, balance
+     */
     private function row(int $index, DateTime $start, string $frequency, float $payment, float $principal, float $interest, float $balance): array {
         $date = clone $start;
         switch ($frequency) {
@@ -196,13 +278,13 @@ final class EchoVault_Loan_Schedule_API {
             case 'Fortnightly':
                 $date->modify('+' . ($index + 1) * 14 . ' days');
                 break;
-            default:
+            default: // Monthly
                 $date->modify('+' . ($index + 1) . ' months');
         }
 
         return [
             'idx'       => $index + 1,
-            'date'      => $date->format('c'),
+            'date'      => $date->format('c'), // ISO 8601 format
             'payment'   => round($payment, 2),
             'principal' => round($principal, 2),
             'interest'  => round($interest, 2),
@@ -210,6 +292,13 @@ final class EchoVault_Loan_Schedule_API {
         ];
     }
 
+    /**
+     * Build summary statistics from the schedule.
+     * 
+     * @param array $schedule Complete repayment schedule
+     * @param float $principal Original loan principal amount
+     * @return array Summary with total_payments, total_principal, total_interest, total_paid
+     */
     private function build_summary(array $schedule, float $principal): array {
         return [
             'total_payments' => count($schedule),
@@ -219,25 +308,51 @@ final class EchoVault_Loan_Schedule_API {
         ];
     }
 
+    /**
+     * Calculate the number of payment periods based on loan term and frequency.
+     * 
+     * Converts loan term (in months) to number of payment periods:
+     * - Monthly: 1 period per month
+     * - Fortnightly: ~26 periods per year (52 weeks / 2)
+     * - Weekly: ~52 periods per year
+     * 
+     * @param int $months Loan term in months
+     * @param string $frequency Payment frequency
+     * @return int Number of payment periods
+     */
     private function period_count(int $months, string $frequency): int {
         switch ($frequency) {
             case 'Weekly':
+                // 52 weeks per year, convert months to periods
                 return (int) ceil(($months * 52) / 12);
             case 'Fortnightly':
+                // 26 fortnights per year (52 weeks / 2)
                 return (int) ceil(($months * 26) / 12);
-            default:
+            default: // Monthly
                 return $months;
         }
     }
 
+    /**
+     * Calculate the interest rate per payment period from annual percentage rate.
+     * 
+     * Converts annual interest rate to periodic rate:
+     * - Monthly: annual rate / 12
+     * - Fortnightly: annual rate / 26
+     * - Weekly: annual rate / 52
+     * 
+     * @param float $annual_percent Annual interest rate as percentage (e.g., 5.5 for 5.5%)
+     * @param string $frequency Payment frequency
+     * @return float Interest rate per period (as decimal, e.g., 0.00458 for 0.458%)
+     */
     private function rate_per_period(float $annual_percent, string $frequency): float {
-        $annual = $annual_percent / 100;
+        $annual = $annual_percent / 100; // Convert percentage to decimal
         switch ($frequency) {
             case 'Weekly':
                 return $annual / 52;
             case 'Fortnightly':
                 return $annual / 26;
-            default:
+            default: // Monthly
                 return $annual / 12;
         }
     }

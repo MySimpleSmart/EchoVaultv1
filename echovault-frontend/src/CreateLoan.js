@@ -872,6 +872,16 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.schedule) {
+          // Debug: Log received frequency and periods
+          if (data.debug) {
+            console.log('API Response Debug:', {
+              frequency: data.debug.frequency,
+              method: data.debug.method,
+              periods: data.debug.periods,
+              scheduleLength: data.schedule.length
+            });
+          }
+          
           // Convert date strings to Date objects for compatibility
           const scheduleWithDates = data.schedule.map(row => ({
             ...row,
@@ -880,7 +890,12 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
           setSchedule(scheduleWithDates);
           setApiTestError('');
           return;
+        } else {
+          console.error('API returned success=false:', data);
         }
+      } else {
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+        console.error('API calculation failed:', response.status, errorData);
       }
       // If API fails, fall back to client-side calculation
       console.warn('API calculation failed, falling back to client-side calculation');
@@ -1665,7 +1680,12 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                 {/* Show schedule - prefer API schedule if available, otherwise show client-side */}
                 {apiSchedule.length > 0 ? (
                   <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">📡 Repayment Schedule (Calculated from Backend API)</h4>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-gray-700">📡 Repayment Schedule (Calculated from Backend API)</h4>
+                      <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                        Scheduled by {form.repayment_frequency}
+                      </span>
+                    </div>
                     <div className="overflow-x-auto border rounded-md border-green-300 bg-green-50">
                       <table className="min-w-full divide-y divide-gray-200 text-sm">
                         <thead className="bg-green-100">
@@ -1695,7 +1715,12 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                   </div>
                 ) : schedule.length > 0 ? (
                   <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">💻 Repayment Schedule (Client-Side Calculation)</h4>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-gray-700">💻 Repayment Schedule (Client-Side Calculation)</h4>
+                      <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                        Scheduled by {form.repayment_frequency}
+                      </span>
+                    </div>
                     <div className="overflow-x-auto border rounded-md">
                       <table className="min-w-full divide-y divide-gray-200 text-sm">
                         <thead className="bg-gray-50">

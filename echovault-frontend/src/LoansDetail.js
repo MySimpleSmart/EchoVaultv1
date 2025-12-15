@@ -475,7 +475,16 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
       {activeTab === 'Repayment Schedule' && (
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold text-gray-900">Repayment Schedule</h3>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Repayment Schedule</h3>
+              {loan && (loan.repayment_frequency || loan.meta?.repayment_frequency) && (
+                <p className="text-sm text-gray-600 mt-1">
+                  Scheduled by <span className="font-medium text-gray-800">
+                    {Array.isArray(loan.repayment_frequency) ? loan.repayment_frequency[0] : (loan.repayment_frequency || loan.meta?.repayment_frequency || 'Monthly')}
+                  </span>
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
