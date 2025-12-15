@@ -52,6 +52,10 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
   const [collateralFile, setCollateralFile] = useState(null);
   const [loanContractFile, setLoanContractFile] = useState(null);
   const [schedule, setSchedule] = useState([]);
+  const [apiSchedule, setApiSchedule] = useState([]);
+  const [apiTestLoading, setApiTestLoading] = useState(false);
+  const [apiTestError, setApiTestError] = useState('');
+  const [apiTestSuccess, setApiTestSuccess] = useState(false);
 
   const [form, setForm] = useState({
     loan_id: 'EL-0000001',
@@ -525,6 +529,216 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
     URL.revokeObjectURL(url);
   };
 
+  // Test function to verify plugin is installed first
+  const testPluginConnection = async () => {
+    try {
+      const testEndpoint = `${apiBase}/echovault/v2/test`;
+      console.log('Testing plugin connection:', testEndpoint);
+      const testResponse = await fetch(testEndpoint, {
+        method: 'GET',
+        mode: 'cors',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      
+      console.log('Test response status:', testResponse.status);
+      console.log('Test response headers:', Object.fromEntries(testResponse.headers.entries()));
+      
+      if (testResponse.ok) {
+        const testData = await testResponse.json();
+        console.log('✅ Plugin is active:', testData);
+        return true;
+      } else {
+        // Try to get error details
+        const errorText = await testResponse.text();
+        console.error('❌ Plugin test failed:', testResponse.status, testResponse.statusText, errorText);
+        
+        // If it's a 404, the route might not be registered yet - try the main endpoint instead
+        if (testResponse.status === 404) {
+          console.log('Test endpoint returned 404, trying main endpoint instead...');
+          // Don't fail completely - the main endpoint might still work
+          return true; // Allow to proceed, the main endpoint test will catch it
+        }
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Plugin connection test failed:', error);
+      // Don't block if test fails - might be CORS or network issue, but endpoint could still work
+      console.log('⚠️ Test failed but continuing - will try main endpoint...');
+      return true; // Allow to proceed
+    }
+  };
+
+  // Test function to call the backend API
+  const testApiSchedule = async () => {
+    if (!form.loan_amount || !form.loan_term || !form.start_date || !selectedProduct) {
+      setApiTestError('Please fill in loan amount, term, and start date first');
+      return;
+    }
+
+    setApiTestLoading(true);
+    setApiTestError('');
+    setApiTestSuccess(false);
+    setApiSchedule([]);
+
+    try {
+      // Try to test plugin connection (but don't block if it fails)
+      const pluginActive = await testPluginConnection();
+      if (!pluginActive) {
+        console.warn('Plugin test endpoint not accessible, but continuing to try main endpoint...');
+        // Don't return - continue to try the main endpoint
+      }
+
+      // Log the API endpoint being called for debugging
+      const endpoint = `${apiBase}/echovault/v2/calculate-schedule`;
+      console.log('Testing API endpoint:', endpoint);
+      console.log('API Base URL:', apiBase);
+      console.log('Token present:', !!token);
+      
+      const requestBody = {
+        loan_amount: Number(form.loan_amount),
+        loan_term: Number(form.loan_term),
+        loan_interest: Number(form.loan_interest || selectedProduct?.interest_rate || 0),
+        repayment_method: form.repayment_method,
+        repayment_frequency: form.repayment_frequency,
+        start_date: form.start_date
+      };
+      console.log('Request body:', requestBody);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(requestBody),
+        mode: 'cors',
+        credentials: 'omit' // Changed from 'include' to 'omit' when using * origin
+      });
+      
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // Check if response has content
+      const contentLength = response.headers.get('content-length');
+      const responseText = await response.text();
+      
+      console.log('Response content-length:', contentLength);
+      console.log('Response text length:', responseText.length);
+      console.log('Response text (first 500 chars):', responseText.substring(0, 500));
+
+      if (!responseText || responseText.trim().length === 0) {
+        throw new Error('Empty response from server. The API endpoint returned no data.');
+      }
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Response text that failed to parse:', responseText);
+        throw new Error(`Failed to parse JSON response: ${parseError.message}. Response: ${responseText.substring(0, 200)}`);
+      }
+      
+      if (data.success && data.schedule) {
+        // Convert date strings to Date objects for compatibility
+        const scheduleWithDates = data.schedule.map(row => ({
+          ...row,
+          date: new Date(row.date)
+        }));
+        
+        setApiSchedule(scheduleWithDates);
+        setApiTestSuccess(true);
+        setApiTestError('');
+        
+        // Compare with client-side calculation
+        if (schedule.length > 0) {
+          const comparison = compareSchedules(schedule, scheduleWithDates);
+          if (comparison.match) {
+            console.log('✅ Schedules match perfectly!', comparison);
+          } else {
+            console.warn('⚠️ Schedule differences detected:', comparison);
+          }
+        }
+      } else {
+        throw new Error('Invalid response format from API');
+      }
+    } catch (error) {
+      console.error('API Test Error:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      let errorMessage = error.message || 'Failed to calculate schedule from API';
+      
+      // Provide more specific error messages
+      if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
+        errorMessage = `Failed to connect to API. This is usually a CORS or network issue.
+        
+Please check:
+1. ✅ Plugin is installed and activated (test endpoint works)
+2. 🔍 Check browser console (F12) → Network tab for detailed error
+3. 🔍 Look for CORS errors in console
+4. 🔍 Verify you're logged in (authentication required)
+
+API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
+      }
+      
+      setApiTestError(errorMessage);
+      setApiTestSuccess(false);
+      setApiSchedule([]);
+    } finally {
+      setApiTestLoading(false);
+    }
+  };
+
+  // Helper to compare client-side and API schedules
+  const compareSchedules = (clientSchedule, apiSchedule) => {
+    if (clientSchedule.length !== apiSchedule.length) {
+      return { match: false, message: `Different lengths: Client ${clientSchedule.length} vs API ${apiSchedule.length}` };
+    }
+
+    const differences = [];
+    for (let i = 0; i < clientSchedule.length; i++) {
+      const client = clientSchedule[i];
+      const api = apiSchedule[i];
+      
+      const paymentDiff = Math.abs(client.payment - api.payment);
+      const principalDiff = Math.abs(client.principal - api.principal);
+      const interestDiff = Math.abs(client.interest - api.interest);
+      const balanceDiff = Math.abs(client.balance - api.balance);
+      
+      const tolerance = 0.01; // Allow 1 cent difference due to rounding
+      
+      if (paymentDiff > tolerance || principalDiff > tolerance || interestDiff > tolerance || balanceDiff > tolerance) {
+        differences.push({
+          row: i + 1,
+          payment: { client: client.payment, api: api.payment, diff: paymentDiff },
+          principal: { client: client.principal, api: api.principal, diff: principalDiff },
+          interest: { client: client.interest, api: api.interest, diff: interestDiff },
+          balance: { client: client.balance, api: api.balance, diff: balanceDiff }
+        });
+      }
+    }
+
+    return {
+      match: differences.length === 0,
+      differences: differences,
+      message: differences.length === 0 
+        ? 'Schedules match perfectly!' 
+        : `Found ${differences.length} row(s) with differences`
+    };
+  };
+
   const getDisbursementLabel = () => {
     try {
       const disb = form.loan_disbursement_account ? JSON.parse(form.loan_disbursement_account) : null;
@@ -581,13 +795,19 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
     return ids;
   };
 
-  useEffect(() => {
-    // Recompute schedule when inputs change
-    if (!form.loan_amount || !form.loan_term || !form.start_date || !selectedProduct) { setSchedule([]); return; }
+  // Client-side calculation (fallback)
+  const calculateScheduleClientSide = () => {
+    if (!form.loan_amount || !form.loan_term || !form.start_date || !selectedProduct) {
+      setSchedule([]);
+      return;
+    }
     const principal = Number(form.loan_amount);
     const n = periodsForFrequency(form.loan_term, form.repayment_frequency);
     const r = ratePerPeriod(form.loan_interest || selectedProduct?.interest_rate || 0, form.repayment_frequency);
-    if (!n || principal <= 0) { setSchedule([]); return; }
+    if (!n || principal <= 0) {
+      setSchedule([]);
+      return;
+    }
 
     const rows = [];
     let balance = principal;
@@ -617,7 +837,66 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
       }
     }
     setSchedule(rows);
-  }, [form.loan_amount, form.loan_term, form.repayment_frequency, form.repayment_method, form.start_date, form.loan_interest, selectedProduct]);
+  };
+
+  // Function to calculate schedule from backend API
+  const calculateScheduleFromAPI = async () => {
+    if (!form.loan_amount || !form.loan_term || !form.start_date || !selectedProduct) {
+      setSchedule([]);
+      return;
+    }
+
+    try {
+      const endpoint = `${apiBase}/echovault/v2/calculate-schedule`;
+      const requestBody = {
+        loan_amount: Number(form.loan_amount),
+        loan_term: Number(form.loan_term),
+        loan_interest: Number(form.loan_interest || selectedProduct?.interest_rate || 0),
+        repayment_method: form.repayment_method,
+        repayment_frequency: form.repayment_frequency,
+        start_date: form.start_date
+      };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(requestBody),
+        mode: 'cors',
+        credentials: 'omit'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.schedule) {
+          // Convert date strings to Date objects for compatibility
+          const scheduleWithDates = data.schedule.map(row => ({
+            ...row,
+            date: new Date(row.date)
+          }));
+          setSchedule(scheduleWithDates);
+          setApiTestError('');
+          return;
+        }
+      }
+      // If API fails, fall back to client-side calculation
+      console.warn('API calculation failed, falling back to client-side calculation');
+      calculateScheduleClientSide();
+    } catch (error) {
+      console.warn('API calculation error, falling back to client-side calculation:', error);
+      // Fall back to client-side calculation on error
+      calculateScheduleClientSide();
+    }
+  };
+
+  useEffect(() => {
+    // Calculate schedule from backend API when inputs change
+    // Falls back to client-side calculation if API fails
+    calculateScheduleFromAPI();
+  }, [form.loan_amount, form.loan_term, form.repayment_frequency, form.repayment_method, form.start_date, form.loan_interest, selectedProduct, token]);
 
   const validate = () => {
     if (!form.borrower) return 'Borrower is required';
@@ -1340,6 +1619,15 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      onClick={testApiSchedule}
+                      disabled={apiTestLoading || !form.loan_amount || !form.loan_term || !form.start_date}
+                      className="px-3 py-1.5 text-sm rounded border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Test API calculation"
+                    >
+                      {apiTestLoading ? 'Testing...' : '🧪 Test API'}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => window.print()}
                       disabled={!schedule || schedule.length===0}
                       className="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1358,34 +1646,86 @@ const CreateLoan = ({ token, setCurrentView, onOpenBorrower, editingLoan }) => {
                     </button>
                   </div>
                 </div>
-                {schedule.length === 0 ? (
-                  <div className="text-sm text-gray-600">Adjust inputs to generate schedule.</div>
-                ) : (
-                  <div className="overflow-x-auto border rounded-md">
-                    <table className="min-w-full divide-y divide-gray-200 text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium text-gray-700">#</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-700">Date</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-700">Payment</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-700">Interest</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-700">Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {schedule.map((row) => (
-                          <tr key={row.idx} className="hover:bg-gray-50">
-                            <td className="px-3 py-1">{row.idx}</td>
-                            <td className="px-3 py-1">{new Date(row.date).toLocaleDateString()}</td>
-                            <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
-                            <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
-                            <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
-                            <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
+                
+                {/* API Test Status Messages */}
+                {apiTestError && (
+                  <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+                    <strong>API Test Error:</strong> {apiTestError}
+                  </div>
+                )}
+                {apiTestSuccess && (
+                  <div className="mb-3 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">
+                    <strong>✅ API Test Successful!</strong> Schedule calculated from backend API. 
+                    {apiSchedule.length > 0 && (
+                      <span className="ml-2">({apiSchedule.length} payments)</span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Show schedule - prefer API schedule if available, otherwise show client-side */}
+                {apiSchedule.length > 0 ? (
+                  <div className="mb-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">📡 Repayment Schedule (Calculated from Backend API)</h4>
+                    <div className="overflow-x-auto border rounded-md border-green-300 bg-green-50">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-green-100">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">Date</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Payment</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Interest</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Balance</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                          {apiSchedule.map((row) => (
+                            <tr key={row.idx} className="hover:bg-green-50">
+                              <td className="px-3 py-1">{row.idx}</td>
+                              <td className="px-3 py-1">{new Date(row.date).toLocaleDateString()}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : schedule.length > 0 ? (
+                  <div className="mb-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">💻 Repayment Schedule (Client-Side Calculation)</h4>
+                    <div className="overflow-x-auto border rounded-md">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">Date</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Payment</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Interest</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {schedule.map((row) => (
+                            <tr key={row.idx} className="hover:bg-gray-50">
+                              <td className="px-3 py-1">{row.idx}</td>
+                              <td className="px-3 py-1">{new Date(row.date).toLocaleDateString()}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
+                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-600 p-4 bg-gray-50 rounded-md border border-gray-200">
+                    Adjust loan parameters (amount, term, start date) to generate the repayment schedule.
                   </div>
                 )}
               </div>

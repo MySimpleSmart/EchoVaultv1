@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
 const getCurrencySymbol = (c) => (c === 'MNT' ? '₮' : '$');
@@ -172,65 +172,87 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
   useEffect(() => { load(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, loanId]);
 
-  const schedule = useMemo(() => {
-    try {
-      if (!loan) return [];
+  const [schedule, setSchedule] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+
+  // Calculate schedule from backend API when loan data is available
+  useEffect(() => {
+    const calculateSchedule = async () => {
+      if (!loan || !token) {
+        setSchedule([]);
+        return;
+      }
+
+      // Extract loan parameters, handling arrays
       const principal = Number(loan.loan_amount || loan.meta?.loan_amount || 0);
       const term = Number(loan.loan_term || loan.meta?.loan_term || 0);
-      const freq = loan.repayment_frequency || loan.meta?.repayment_frequency || 'Monthly';
-      const method = loan.repayment_method || loan.meta?.repayment_method || 'Equal Principal';
+      let freq = loan.repayment_frequency || loan.meta?.repayment_frequency;
+      let method = loan.repayment_method || loan.meta?.repayment_method;
       const interest = Number(loan.loan_interest || loan.meta?.loan_interest || product?.interest_rate || 0);
-      const start = new Date(loan.start_date || loan.meta?.start_date || Date.now());
-      if (!principal || !term) return [];
-      const periodsForFrequency = (months, f) => {
-        if (f === 'Monthly') return months;
-        if (f === 'Fortnightly') return Math.ceil((months * 12 * 2) / 12);
-        if (f === 'Weekly') return Math.ceil((months * 52) / 12);
-        return months;
-      };
-      const ratePerPeriod = (annualPct, f) => {
-        const annual = Number(annualPct || 0) / 100;
-        if (f === 'Monthly') return annual / 12;
-        if (f === 'Fortnightly') return annual / 26;
-        if (f === 'Weekly') return annual / 52;
-        return annual / 12;
-      };
-      const addDays = (d, days) => { const x = new Date(d); x.setDate(x.getDate() + days); return x; };
-      const addMonths = (d, months) => { const x = new Date(d); x.setMonth(x.getMonth() + months); return x; };
-      const nextDateFrom = (s, idx, f) => {
-        if (f === 'Monthly') return addMonths(s, idx + 1);
-        if (f === 'Fortnightly') return addDays(s, (idx + 1) * 14);
-        if (f === 'Weekly') return addDays(s, (idx + 1) * 7);
-        return addMonths(s, idx + 1);
-      };
-      const n = periodsForFrequency(term, freq);
-      const r = ratePerPeriod(interest, freq);
-      const rows = [];
-      let balance = principal;
-      if (method === 'Equal Total') {
-        const payment = r === 0 ? principal / n : (principal * r) / (1 - Math.pow(1 + r, -n));
-        for (let i = 0; i < n; i++) {
-          const interestAmt = balance * r;
-          const principalPaid = Math.min(payment - interestAmt, balance);
-          balance = Math.max(0, balance - principalPaid);
-          rows.push({ idx: i + 1, date: nextDateFrom(start, i, freq), payment, principal: principalPaid, interest: interestAmt, balance });
-        }
-      } else if (method === 'Interest-Only') {
-        const interestOnly = balance * r;
-        for (let i = 0; i < n - 1; i++) rows.push({ idx: i + 1, date: nextDateFrom(start, i, freq), payment: interestOnly, principal: 0, interest: interestOnly, balance });
-        rows.push({ idx: n, date: nextDateFrom(start, n - 1, freq), payment: interestOnly + balance, principal: balance, interest: interestOnly, balance: 0 });
-      } else {
-        const principalPer = principal / n;
-        for (let i = 0; i < n; i++) {
-          const interestAmt = balance * r;
-          const payment = principalPer + interestAmt;
-          balance = Math.max(0, balance - principalPer);
-          rows.push({ idx: i + 1, date: nextDateFrom(start, i, freq), payment, principal: principalPer, interest: interestAmt, balance });
-        }
+      const startDate = loan.start_date || loan.meta?.start_date;
+
+      // Handle arrays (WordPress sometimes returns arrays)
+      if (Array.isArray(freq)) freq = freq[0];
+      if (Array.isArray(method)) method = method[0];
+      
+      // Default values
+      freq = freq || 'Monthly';
+      method = method || 'Equal Principal';
+
+      if (!principal || !term || !startDate) {
+        setSchedule([]);
+        return;
       }
-      return rows;
-    } catch (_) { return []; }
-  }, [loan, product]);
+
+      setScheduleLoading(true);
+      try {
+        const endpoint = `${apiBase}/echovault/v2/calculate-schedule`;
+        const requestBody = {
+          loan_amount: principal,
+          loan_term: term,
+          loan_interest: interest,
+          repayment_method: method,
+          repayment_frequency: freq,
+          start_date: startDate
+        };
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : '',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(requestBody),
+          mode: 'cors',
+          credentials: 'omit'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.schedule) {
+            // Convert date strings to Date objects for compatibility
+            const scheduleWithDates = data.schedule.map(row => ({
+              ...row,
+              date: new Date(row.date)
+            }));
+            setSchedule(scheduleWithDates);
+            return;
+          }
+        }
+        // If API fails, fall back to empty schedule
+        console.warn('Failed to calculate schedule from API, falling back to empty');
+        setSchedule([]);
+      } catch (error) {
+        console.warn('Error calculating schedule from API:', error);
+        setSchedule([]);
+      } finally {
+        setScheduleLoading(false);
+      }
+    };
+
+    calculateSchedule();
+  }, [loan, product, token]);
 
   const downloadScheduleCsv = () => {
     if (!schedule || schedule.length === 0) return;
@@ -475,7 +497,17 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               </button>
             </div>
           </div>
-          {(!schedule || schedule.length===0) ? (
+          {scheduleLoading ? (
+            <div className="text-gray-600 text-sm py-4 text-center">
+              <div className="inline-flex items-center">
+                <svg className="animate-spin h-5 w-5 text-blue-600 mr-2" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Calculating schedule...
+              </div>
+            </div>
+          ) : (!schedule || schedule.length===0) ? (
             <div className="text-gray-600 text-sm">No schedule available.</div>
           ) : (
             <div className="overflow-x-auto">
