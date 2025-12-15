@@ -1125,6 +1125,44 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
         const txt = await resp.text();
         throw new Error(txt || (editingLoan ? 'Failed to update loan' : 'Failed to create loan'));
       }
+      
+      const createdLoan = await resp.json();
+      const newLoanId = createdLoan.id || createdLoan.ID || loanId;
+      
+      // FORCE GENERATE SCHEDULE IMMEDIATELY after loan creation
+      // Wait 2 seconds for meta to be saved first
+      if (newLoanId && !editingLoan) {
+        setTimeout(async () => {
+          try {
+            const generateResp = await fetch(`${apiBase}/echovault/v2/force-generate-schedule?loan_id=${newLoanId}`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json'
+              },
+              mode: 'cors',
+              credentials: 'omit'
+            });
+            
+            const contentType = generateResp.headers.get('content-type');
+            if (generateResp.ok && contentType && contentType.includes('application/json')) {
+              const generateData = await generateResp.json();
+              if (generateData.success) {
+                console.log('Schedule generated successfully:', generateData.segments_created, 'segments');
+              } else {
+                console.error('Schedule generation failed:', generateData.error, generateData.debug);
+              }
+            } else {
+              const errorText = await generateResp.text();
+              console.error('Schedule generation failed:', generateResp.status, errorText.substring(0, 200));
+            }
+          } catch (genError) {
+            console.error('Schedule generation error:', genError);
+            // Don't fail loan creation if schedule generation fails
+          }
+        }, 2000); // Wait 2 seconds for meta to be saved
+      }
+      
       setSuccessMessage({ show: true, message: editingLoan ? 'Loan updated successfully!' : 'Loan created successfully!', type: 'success' });
       setTimeout(() => setCurrentView('loans-active'), 900);
     } catch (err) {
@@ -1343,6 +1381,11 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
         throw new Error(txt || 'Failed to save draft');
       }
       const responseData = await resp.json();
+      const savedLoanId = responseData.id || responseData.ID || loanId;
+      
+      // Schedule is automatically generated on backend when loan is saved
+      // No need to call API - backend hooks handle it
+      
       setSuccessMessage({ show: true, message: editingLoan ? 'Draft updated.' : 'Draft saved.', type: 'success' });
     } catch (err) {
       setError(err.message || 'Failed to save draft');

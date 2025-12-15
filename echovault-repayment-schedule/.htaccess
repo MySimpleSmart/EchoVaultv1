@@ -6,9 +6,8 @@
     <FilesMatch "^(.*)$">
         SetEnvIf Request_URI "^/wp-json/echovault/" ENABLE_CORS=1
         Header set Access-Control-Allow-Origin "*" env=ENABLE_CORS
-        Header set Access-Control-Allow-Methods "GET, POST, OPTIONS" env=ENABLE_CORS
+        Header set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" env=ENABLE_CORS
         Header set Access-Control-Allow-Headers "Authorization, Content-Type, Accept, X-Requested-With" env=ENABLE_CORS
         Header set Access-Control-Expose-Headers "X-WP-Total, X-WP-TotalPages" env=ENABLE_CORS
     </FilesMatch>
 </IfModule>
-

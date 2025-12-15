@@ -174,96 +174,158 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
 
   const [schedule, setSchedule] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedSegment, setSelectedSegment] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({
+    paid_interest: 0,
+    paid_principles: 0,
+    payment_date: new Date().toISOString().split('T')[0],
+    repayment_note: ''
+  });
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
-  // Calculate schedule from backend API when loan data is available
+  // Fetch repayment schedule from backend API
   useEffect(() => {
-    const calculateSchedule = async () => {
-      if (!loan || !token) {
-        setSchedule([]);
-        return;
-      }
-
-      // Extract loan parameters, handling arrays
-      const principal = Number(loan.loan_amount || loan.meta?.loan_amount || 0);
-      const term = Number(loan.loan_term || loan.meta?.loan_term || 0);
-      let freq = loan.repayment_frequency || loan.meta?.repayment_frequency;
-      let method = loan.repayment_method || loan.meta?.repayment_method;
-      const interest = Number(loan.loan_interest || loan.meta?.loan_interest || product?.interest_rate || 0);
-      const startDate = loan.start_date || loan.meta?.start_date;
-
-      // Handle arrays (WordPress sometimes returns arrays)
-      if (Array.isArray(freq)) freq = freq[0];
-      if (Array.isArray(method)) method = method[0];
-      
-      // Default values
-      freq = freq || 'Monthly';
-      method = method || 'Equal Principal';
-
-      if (!principal || !term || !startDate) {
+    const fetchSchedule = async () => {
+      if (!loan || !token || !loanId) {
         setSchedule([]);
         return;
       }
 
       setScheduleLoading(true);
       try {
-        const endpoint = `${apiBase}/echovault/v2/calculate-schedule`;
-        const requestBody = {
-          loan_amount: principal,
-          loan_term: term,
-          loan_interest: interest,
-          repayment_method: method,
-          repayment_frequency: freq,
-          start_date: startDate
-        };
-
+        const endpoint = `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${loanId}`;
         const response = await fetch(endpoint, {
-          method: 'POST',
+          method: 'GET',
           headers: {
-            'Content-Type': 'application/json',
             'Authorization': token ? `Bearer ${token}` : '',
             'Accept': 'application/json'
           },
-          body: JSON.stringify(requestBody),
           mode: 'cors',
           credentials: 'omit'
         });
 
         if (response.ok) {
           const data = await response.json();
-          if (data.success && data.schedule) {
-            // Convert date strings to Date objects for compatibility
-            const scheduleWithDates = data.schedule.map(row => ({
-              ...row,
-              date: new Date(row.date)
-            }));
-            setSchedule(scheduleWithDates);
+          if (data.success && data.schedule && data.schedule.length > 0) {
+            setSchedule(data.schedule);
             return;
           }
         }
-        // If API fails, fall back to empty schedule
-        console.warn('Failed to calculate schedule from API, falling back to empty');
+        
+        // Note: Schedule should generate automatically when loan is created
+        // No need to call API endpoint - backend handles it via hooks
+        
+        // If no schedule exists, return empty
         setSchedule([]);
       } catch (error) {
-        console.warn('Error calculating schedule from API:', error);
+        console.warn('Error fetching repayment schedule:', error);
         setSchedule([]);
       } finally {
         setScheduleLoading(false);
       }
     };
 
-    calculateSchedule();
-  }, [loan, product, token]);
+    fetchSchedule();
+  }, [loan, token, loanId]);
+
+  // Register payment
+  const registerPayment = async () => {
+    if (!selectedSegment || !token || !loanId) return;
+    
+    setPaymentLoading(true);
+    try {
+      const endpoint = `${apiBase}/echovault/v2/register-payment`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          loan_id: parseInt(loanId),
+          segment_id: parseInt(selectedSegment.id),
+          paid_interest: parseFloat(paymentForm.paid_interest) || 0,
+          paid_principles: parseFloat(paymentForm.paid_principles) || 0,
+          payment_date: paymentForm.payment_date,
+          repayment_note: paymentForm.repayment_note || ''
+        }),
+        mode: 'cors',
+        credentials: 'omit'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Refresh schedule
+          const refreshEndpoint = `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${loanId}`;
+          const refreshResponse = await fetch(refreshEndpoint, {
+            method: 'GET',
+            headers: {
+              'Authorization': token ? `Bearer ${token}` : '',
+              'Accept': 'application/json'
+            },
+            mode: 'cors',
+            credentials: 'omit'
+          });
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json();
+            if (refreshData.success && refreshData.schedule) {
+              setSchedule(refreshData.schedule);
+            }
+          }
+          setShowPaymentModal(false);
+          setSelectedSegment(null);
+          setPaymentForm({
+            paid_interest: 0,
+            paid_principles: 0,
+            payment_date: new Date().toISOString().split('T')[0],
+            repayment_note: ''
+          });
+        } else {
+          alert('Error: ' + (data.error || 'Failed to register payment'));
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to register payment' }));
+        alert('Error: ' + (errorData.error || 'Failed to register payment'));
+      }
+    } catch (error) {
+      console.error('Error registering payment:', error);
+      alert('Error: ' + error.message);
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const openPaymentModal = (segment) => {
+    setSelectedSegment(segment);
+    setPaymentForm({
+      paid_interest: segment.accrued_interest || 0,
+      paid_principles: (segment.start_balance - segment.remain_balance) || 0,
+      payment_date: new Date().toISOString().split('T')[0],
+      repayment_note: ''
+    });
+    setShowPaymentModal(true);
+  };
 
   const downloadScheduleCsv = () => {
     if (!schedule || schedule.length === 0) return;
-    const headers = ['#','Date','Payment','Principal','Interest','Balance'];
+    const headers = ['ID','Segment Start','Segment End','Days','Start Balance','Accrued Interest','Paid Interest','Paid Principal','Total Payment','Outstanding Interest','Remain Balance','Status','Note'];
     const rows = schedule.map(r => [
-      r.idx,
-      new Date(r.date).toISOString().slice(0,10),
-      r.payment.toFixed(2),
-      r.principal.toFixed(2),
-      r.interest.toFixed(2),
-      r.balance.toFixed(2)
+      r.id,
+      r.segment_start || '',
+      r.segment_end || '',
+      r.loan_days || 0,
+      (r.start_balance || 0).toFixed(2),
+      (r.accrued_interest || 0).toFixed(2),
+      (r.paid_interest || 0).toFixed(2),
+      (r.paid_principles || 0).toFixed(2),
+      (r.total_payment || 0).toFixed(2),
+      (r.outstanding_interest || 0).toFixed(2),
+      (r.remain_balance || 0).toFixed(2),
+      r.repayment_status || 'Pending',
+      r.repayment_note || ''
     ]);
     const csv = [headers, ...rows].map(cols => cols.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -476,7 +538,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Repayment Schedule</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Repayment Schedule</h3>
               {loan && (loan.repayment_frequency || loan.meta?.repayment_frequency) && (
                 <p className="text-sm text-gray-600 mt-1">
                   Scheduled by <span className="font-medium text-gray-800">
@@ -486,6 +548,24 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               )}
             </div>
             <div className="flex items-center gap-2">
+              {schedule && schedule.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Find the first pending segment or use the first segment
+                    const pendingSegment = schedule.find(s => s.repayment_status === 'Pending');
+                    if (pendingSegment) {
+                      openPaymentModal(pendingSegment);
+                    } else if (schedule.length > 0) {
+                      openPaymentModal(schedule[0]);
+                    }
+                  }}
+                  className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Register Payment"
+                >
+                  Register Payment
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => window.print()}
@@ -517,33 +597,137 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               </div>
             </div>
           ) : (!schedule || schedule.length===0) ? (
-            <div className="text-gray-600 text-sm">No schedule available.</div>
+            <div className="text-gray-600 text-sm py-4 text-center">
+              <p>Repayment schedule will be generated automatically when the loan is created.</p>
+              <p className="text-xs text-gray-500 mt-2">If the schedule doesn't appear, please refresh the page.</p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <table className="min-w-full divide-y divide-gray-200 text-xs">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-2 text-left">#</th>
-                    <th className="px-3 py-2 text-left">Date</th>
-                    <th className="px-3 py-2 text-right">Payment</th>
-                    <th className="px-3 py-2 text-right">Principal</th>
-                    <th className="px-3 py-2 text-right">Interest</th>
-                    <th className="px-3 py-2 text-right">Balance</th>
+                    <th className="px-2 py-2 text-left">ID</th>
+                    <th className="px-2 py-2 text-left">Start</th>
+                    <th className="px-2 py-2 text-left">End</th>
+                    <th className="px-2 py-2 text-center">Days</th>
+                    <th className="px-2 py-2 text-right">Start Balance</th>
+                    <th className="px-2 py-2 text-right">Accrued Interest</th>
+                    <th className="px-2 py-2 text-right">Paid Interest</th>
+                    <th className="px-2 py-2 text-right">Paid Principal</th>
+                    <th className="px-2 py-2 text-right">Total Payment</th>
+                    <th className="px-2 py-2 text-right">Outstanding</th>
+                    <th className="px-2 py-2 text-right">Remain Balance</th>
+                    <th className="px-2 py-2 text-center">Status</th>
+                    <th className="px-2 py-2 text-left">Note</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {schedule.map(r => (
-                    <tr key={r.idx}>
-                      <td className="px-3 py-1">{r.idx}</td>
-                      <td className="px-3 py-1">{new Date(r.date).toLocaleDateString()}</td>
-                      <td className="px-3 py-1 text-right">{getCurrencySymbol(currency)}{r.payment.toFixed(2)}</td>
-                      <td className="px-3 py-1 text-right">{getCurrencySymbol(currency)}{r.principal.toFixed(2)}</td>
-                      <td className="px-3 py-1 text-right">{getCurrencySymbol(currency)}{r.interest.toFixed(2)}</td>
-                      <td className="px-3 py-1 text-right">{getCurrencySymbol(currency)}{r.balance.toFixed(2)}</td>
+                  {schedule.map(r => {
+                    const statusClass = r.repayment_status === 'Paid' ? 'bg-green-100 text-green-800' 
+                      : r.repayment_status === 'Partial' ? 'bg-yellow-100 text-yellow-800'
+                      : 'bg-gray-100 text-gray-800';
+                    return (
+                      <tr key={r.id} className="hover:bg-gray-50">
+                        <td className="px-2 py-1">{r.id}</td>
+                        <td className="px-2 py-1">{r.segment_start || '-'}</td>
+                        <td className="px-2 py-1">{r.segment_end || '-'}</td>
+                        <td className="px-2 py-1 text-center">{r.loan_days || 0}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.start_balance || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.accrued_interest || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.paid_interest || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.paid_principles || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right font-medium">{getCurrencySymbol(currency)}{(r.total_payment || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.outstanding_interest || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right font-medium">{getCurrencySymbol(currency)}{(r.remain_balance || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-center">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${statusClass}`}>
+                            {r.repayment_status || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="px-2 py-1 text-xs text-gray-600">{r.repayment_note || '-'}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
+            </div>
+          )}
+          
+          {/* Payment Registration Modal */}
+          {showPaymentModal && selectedSegment && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Register Payment</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Segment ID</label>
+                    <input
+                      type="text"
+                      value={selectedSegment.id}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Paid Interest</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={paymentForm.paid_interest}
+                      onChange={(e) => setPaymentForm({...paymentForm, paid_interest: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Paid Principal</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={paymentForm.paid_principles}
+                      onChange={(e) => setPaymentForm({...paymentForm, paid_principles: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
+                    <input
+                      type="date"
+                      value={paymentForm.payment_date}
+                      onChange={(e) => setPaymentForm({...paymentForm, payment_date: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Note (optional)</label>
+                    <textarea
+                      value={paymentForm.repayment_note}
+                      onChange={(e) => setPaymentForm({...paymentForm, repayment_note: e.target.value})}
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Payment notes..."
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-6">
+                  <button
+                    onClick={() => {
+                      setShowPaymentModal(false);
+                      setSelectedSegment(null);
+                    }}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                    disabled={paymentLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={registerPayment}
+                    disabled={paymentLoading}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {paymentLoading ? 'Registering...' : 'Register Payment'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
