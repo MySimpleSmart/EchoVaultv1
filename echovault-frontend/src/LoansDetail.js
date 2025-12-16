@@ -618,7 +618,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     <th className="px-2 py-2 text-right">Outstanding</th>
                     <th className="px-2 py-2 text-right">Remain Balance</th>
                     <th className="px-2 py-2 text-center">Status</th>
-                    <th className="px-2 py-2 text-left">Note</th>
+                    <th className="px-3 py-2 text-left min-w-[250px] w-64">Note</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -644,7 +644,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                             {r.repayment_status || 'Pending'}
                           </span>
                         </td>
-                        <td className="px-2 py-1 text-xs text-gray-600">{r.repayment_note || '-'}</td>
+                        <td className="px-3 py-1 text-xs text-gray-600 min-w-[250px] w-64 break-words">{r.repayment_note || '-'}</td>
                     </tr>
                     );
                   })}

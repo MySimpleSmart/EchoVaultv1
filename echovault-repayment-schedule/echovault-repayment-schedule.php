@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: EchoVault Loan Schedule API
- * Description: Provides a REST endpoint that computes loan repayment schedules on the server.
- * Version:     2.0.0
+ * Description: Provides REST endpoints and storage for loan repayment schedules.
+ * Version:     3.0.0
  * Author:      EchoVault
  * Text Domain: echovault-loan-schedule
  */
@@ -11,16 +11,14 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+/**
+ * Create the custom repayment schedule table on plugin activation.
+ */
 register_activation_hook(__FILE__, static function () {
-    flush_rewrite_rules();
-    // Force REST API routes to be registered on next request
-    delete_option('rewrite_rules');
-    
-    // Create custom table for repayment schedule
     global $wpdb;
-    $table_name = $wpdb->prefix . 'echovault_repayment_schedule';
+    $table_name     = $wpdb->prefix . 'echovault_repayment_schedule';
     $charset_collate = $wpdb->get_charset_collate();
-    
+
     $sql = "CREATE TABLE IF NOT EXISTS $table_name (
         id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
         related_loan bigint(20) UNSIGNED NOT NULL,
@@ -43,23 +41,10 @@ register_activation_hook(__FILE__, static function () {
         KEY segment_start (segment_start),
         KEY repayment_status (repayment_status)
     ) $charset_collate;";
-    
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
 });
-
-register_deactivation_hook(__FILE__, static function () {
-    flush_rewrite_rules();
-});
-
-// Flush rewrite rules on plugin load if needed (one-time check)
-add_action('init', static function () {
-    $flush_needed = get_option('echovault_flush_rewrite_rules');
-    if ($flush_needed !== '1') {
-        flush_rewrite_rules(false);
-        update_option('echovault_flush_rewrite_rules', '1');
-    }
-}, 999);
 
 final class EchoVault_Loan_Schedule_API {
     private const ROUTE_NAMESPACE = 'echovault/v2';
@@ -68,6 +53,7 @@ final class EchoVault_Loan_Schedule_API {
     private const GENERATE_SCHEDULE_ROUTE = '/generate-repayment-schedule';
     private const REGISTER_PAYMENT_ROUTE  = '/register-payment';
     private const GET_SCHEDULE_ROUTE      = '/get-repayment-schedule';
+    private const DELETE_SCHEDULE_ROUTE   = '/delete-repayment-schedule';
     private const REPAYMENT_SCHEDULE_POST_TYPE = 'repayment_schedule';
     
     /**
@@ -78,8 +64,24 @@ final class EchoVault_Loan_Schedule_API {
         return $wpdb->prefix . 'echovault_repayment_schedule';
     }
 
+    public function __construct() {
+        // Register REST API routes and CORS handling
+        add_action('rest_api_init', [$this, 'register_routes'], 10);
+        add_action('rest_api_init', [$this, 'enable_cors'], 15);
+
+        // Generate schedule once, when key meta fields are present
+        add_action('updated_post_meta', [$this, 'maybe_generate_schedule_from_meta'], 10, 4);
+
+        // Admin UI for viewing repayment schedules
+        add_action('admin_menu', [$this, 'add_admin_menu']);
+        
+        // Handle manual deletion from admin page
+        add_action('admin_init', [$this, 'handle_manual_delete']);
+    }
+
     /**
-     * Ensure the custom repayment schedule table exists
+     * Ensure the custom repayment schedule table exists.
+     * Kept as a safety net in case activation did not run cleanly.
      */
     private function ensure_table_exists(): void {
         global $wpdb;
@@ -117,62 +119,71 @@ final class EchoVault_Loan_Schedule_API {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
-        error_log("EchoVault: Created custom repayment schedule table via ensure_table_exists");
     }
 
-    public function __construct() {
-        // Ensure custom table exists
-        $this->ensure_table_exists();
-        
-        // Register the repayment_schedule custom post type FIRST
-        add_action('init', [$this, 'register_repayment_schedule_post_type'], 5);
-        
-        // Enable CORS FIRST, before anything else - use send_headers which fires very early
-        add_action('send_headers', [$this, 'enable_cors_early'], 1);
-        
-        // Register routes on rest_api_init hook (required for REST API)
-        add_action('rest_api_init', [$this, 'register_routes'], 10);
-        add_action('rest_api_init', [$this, 'enable_cors'], 5);
-        
-        // Auto-generate schedule when loan is created - MULTIPLE HOOKS TO CATCH IT
-        // Hook into REST API after insert - this FIRES when loan is created
-        add_action('rest_after_insert_loans', [$this, 'force_generate_schedule'], 999, 3);
-        add_action('rest_insert_loans', [$this, 'force_generate_schedule_insert'], 10, 3);
-        // Also hook when meta is saved - this catches FormData saves
-        add_action('added_post_meta', [$this, 'force_generate_on_meta_add'], 999, 4);
-        add_action('updated_post_meta', [$this, 'force_generate_on_meta_add'], 999, 4);
-        // Standard save hook
-        add_action('save_post_loans', [$this, 'force_generate_on_save'], 999, 3);
-        // Shutdown hook as final catch-all
-        add_action('shutdown', [$this, 'check_new_loans_on_shutdown'], 999);
-        
-        // Delete repayment schedules when loan is deleted
-        add_action('before_delete_post', [$this, 'delete_schedules_on_loan_delete']);
-        
-        // Add admin notice if plugin is active but routes aren't working
-        add_action('admin_notices', [$this, 'check_routes_registered']);
-        
-        // Add admin menu to view repayment schedules
-        add_action('admin_menu', [$this, 'add_admin_menu']);
-    }
-    
     /**
-     * Delete repayment schedules when loan is deleted
+     * Single meta-based trigger for generating a schedule.
+     * Fires once when loan_amount, loan_term and start_date are all present.
      */
-    public function delete_schedules_on_loan_delete($post_id): void {
+    public function maybe_generate_schedule_from_meta($meta_id, $post_id, $meta_key, $meta_value): void {
+        // Only care about our core fields
+        $watched_keys = ['loan_amount', 'loan_term', 'start_date'];
+        if (!in_array($meta_key, $watched_keys, true)) {
+            return;
+        }
+
         $post = get_post($post_id);
-        
-        // Only process loans post type
         if (!$post || $post->post_type !== 'loans') {
             return;
         }
+
+        // Do not create duplicates
+        if ($this->schedule_exists($post_id)) {
+            return;
+        }
+
+        // Pull all data in one place; this will return null until all required fields exist
+        $loan_data = $this->get_loan_data($post_id);
+        if (!$loan_data) {
+            return;
+        }
+
+        $this->create_repayment_schedule($post_id, $loan_data);
+    }
+    
+    /**
+     * Handle manual deletion of repayment schedules from admin page
+     */
+    public function handle_manual_delete(): void {
+        // Check if this is a delete request
+        if (!isset($_GET['echovault_delete_schedule']) || !isset($_GET['loan_id'])) {
+            return;
+        }
         
-        error_log("EchoVault: Loan $post_id is being deleted, removing associated repayment schedules");
+        // Verify nonce for security
+        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'delete_schedule_' . intval($_GET['loan_id']))) {
+            wp_die('Security check failed');
+        }
+        
+        // Check user permissions
+        if (!current_user_can('manage_options')) {
+            wp_die('You do not have permission to delete repayment schedules');
+        }
+        
+        $loan_id = intval($_GET['loan_id']);
         
         // Delete all schedules for this loan
-        $this->delete_existing_schedule($post_id);
+        $deleted = $this->delete_existing_schedule($loan_id);
         
-        error_log("EchoVault: Deleted repayment schedules for loan $post_id");
+        // Redirect back with success message
+        $redirect_url = add_query_arg([
+            'page' => 'echovault-repayment-schedules',
+            'deleted' => $deleted,
+            'loan_id' => $loan_id > 0 ? $loan_id : null
+        ], admin_url('admin.php'));
+        
+        wp_redirect($redirect_url);
+        exit;
     }
     
     /**
@@ -194,7 +205,6 @@ final class EchoVault_Loan_Schedule_API {
      * Render admin page to view repayment schedules
      */
     public function render_admin_page(): void {
-        $this->ensure_table_exists();
         global $wpdb;
         $table_name = $this->get_table_name();
         
@@ -232,9 +242,18 @@ final class EchoVault_Loan_Schedule_API {
             }
         }
         
+        // Handle success message
+        $deleted_count = isset($_GET['deleted']) ? intval($_GET['deleted']) : 0;
+        
         ?>
         <div class="wrap">
             <h1>Repayment Schedules</h1>
+            
+            <?php if ($deleted_count > 0): ?>
+                <div class="notice notice-success is-dismissible">
+                    <p>Successfully deleted <?php echo esc_html($deleted_count); ?> repayment schedule row(s).</p>
+                </div>
+            <?php endif; ?>
             
             <?php if ($loan_id > 0): ?>
                 <p><a href="<?php echo admin_url('admin.php?page=echovault-repayment-schedules'); ?>">&larr; Back to All Schedules</a></p>
@@ -243,6 +262,20 @@ final class EchoVault_Loan_Schedule_API {
                 <?php if (empty($schedules)): ?>
                     <p>No repayment schedule found for this loan.</p>
                 <?php else: ?>
+                    <p>
+                        <a href="<?php echo wp_nonce_url(
+                            add_query_arg([
+                                'page' => 'echovault-repayment-schedules',
+                                'echovault_delete_schedule' => '1',
+                                'loan_id' => $loan_id
+                            ], admin_url('admin.php')),
+                            'delete_schedule_' . $loan_id
+                        ); ?>" 
+                        class="button button-secondary" 
+                        onclick="return confirm('Are you sure you want to delete all repayment schedules for this loan? This action cannot be undone.');">
+                            Delete All Schedules for This Loan
+                        </a>
+                    </p>
                     <table class="wp-list-table widefat fixed striped">
                         <thead>
                             <tr>
@@ -294,30 +327,63 @@ final class EchoVault_Loan_Schedule_API {
                                 <th>Loan ID</th>
                                 <th>Segments</th>
                                 <th>Total Balance</th>
+                                <th>Remaining Balance</th>
                                 <th>Total Accrued Interest</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($schedules_by_loan as $loan_data): ?>
+                                <?php
+                                $schedules_for_loan = $loan_data['schedules'];
+                                // Total balance: initial loan amount from first segment's start_balance
+                                $initial_balance = isset($schedules_for_loan[0]['start_balance'])
+                                    ? (float) $schedules_for_loan[0]['start_balance']
+                                    : 0.0;
+                                // Remaining balance: find the FIRST segment with "Pending" status (top of the list)
+                                // This shows the current outstanding balance that needs to be paid
+                                $remaining_balance = 0.0;
+                                foreach ($schedules_for_loan as $segment) {
+                                    $segment_status = isset($segment['repayment_status']) ? $segment['repayment_status'] : 'Pending';
+                                    // Use the first segment with Pending status
+                                    if ($segment_status === 'Pending') {
+                                        $remaining_balance = isset($segment['remain_balance']) ? (float) $segment['remain_balance'] : 0.0;
+                                        break;
+                                    }
+                                }
+                                // If no Pending segment found, use the last segment's balance as fallback
+                                if ($remaining_balance == 0.0 && !empty($schedules_for_loan)) {
+                                    $last_segment = end($schedules_for_loan);
+                                    $remaining_balance = isset($last_segment['remain_balance']) ? (float) $last_segment['remain_balance'] : 0.0;
+                                }
+                                ?>
                                 <tr>
                                     <td><?php echo esc_html($loan_data['loan_title']); ?></td>
                                     <td><?php echo esc_html($loan_data['loan_id']); ?></td>
-                                    <td><?php echo count($loan_data['schedules']); ?></td>
+                                    <td><?php echo count($schedules_for_loan); ?></td>
+                                    <td><?php echo number_format($initial_balance, 2); ?></td>
+                                    <td><?php echo number_format($remaining_balance, 2); ?></td>
                                     <td>
                                         <?php 
-                                        $total_balance = array_sum(array_column($loan_data['schedules'], 'start_balance'));
-                                        echo number_format($total_balance, 2); 
-                                        ?>
-                                    </td>
-                                    <td>
-                                        <?php 
-                                        $total_interest = array_sum(array_column($loan_data['schedules'], 'accrued_interest'));
+                                        $total_interest = array_sum(array_column($schedules_for_loan, 'accrued_interest'));
                                         echo number_format($total_interest, 2); 
                                         ?>
                                     </td>
                                     <td>
                                         <a href="<?php echo admin_url('admin.php?page=echovault-repayment-schedules&loan_id=' . $loan_data['loan_id']); ?>">View Details</a>
+                                        |
+                                        <a href="<?php echo wp_nonce_url(
+                                            add_query_arg([
+                                                'page' => 'echovault-repayment-schedules',
+                                                'echovault_delete_schedule' => '1',
+                                                'loan_id' => $loan_data['loan_id']
+                                            ], admin_url('admin.php')),
+                                            'delete_schedule_' . $loan_data['loan_id']
+                                        ); ?>" 
+                                        style="color: #a00;" 
+                                        onclick="return confirm('Are you sure you want to delete all repayment schedules for loan #<?php echo esc_js($loan_data['loan_id']); ?>? This action cannot be undone.');">
+                                            Delete
+                                        </a>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -498,6 +564,17 @@ final class EchoVault_Loan_Schedule_API {
             [
                 'methods'             => ['GET', 'POST', 'OPTIONS'],
                 'callback'            => [$this, 'handle_get_schedule'],
+                'permission_callback' => '__return_true',
+            ]
+        );
+        
+        // Delete repayment schedule endpoint
+        register_rest_route(
+            self::ROUTE_NAMESPACE,
+            self::DELETE_SCHEDULE_ROUTE,
+            [
+                'methods'             => ['POST', 'DELETE', 'OPTIONS'],
+                'callback'            => [$this, 'handle_delete_schedule'],
                 'permission_callback' => '__return_true',
             ]
         );
@@ -1529,7 +1606,6 @@ final class EchoVault_Loan_Schedule_API {
      * Check if repayment schedule already exists for a loan
      */
     private function schedule_exists(int $loan_id): bool {
-        $this->ensure_table_exists();
         global $wpdb;
         $table_name = $this->get_table_name();
         $count = $wpdb->get_var($wpdb->prepare(
@@ -1964,6 +2040,55 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
+     * Handle delete repayment schedule API request
+     */
+    public function handle_delete_schedule(WP_REST_Request $request): WP_REST_Response {
+        // Handle OPTIONS preflight
+        if ($request->get_method() === 'OPTIONS') {
+            return new WP_REST_Response(null, 200);
+        }
+
+        try {
+            $loan_id = intval($request->get_param('loan_id'));
+            if (!$loan_id || $loan_id <= 0) {
+                throw new WP_REST_Exception('invalid_loan_id', 'Loan ID is required and must be a positive number.', ['status' => 400]);
+            }
+
+            // Delete all schedules for this loan
+            $deleted = $this->delete_existing_schedule($loan_id);
+
+            $response = new WP_REST_Response(
+                [
+                    'success' => true,
+                    'message' => "Deleted $deleted repayment schedule row(s) for loan $loan_id",
+                    'deleted_count' => $deleted,
+                ],
+                200
+            );
+            
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
+        } catch (WP_REST_Exception $e) {
+            return new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                    'code' => $e->getErrorCode(),
+                ],
+                $e->getStatus()
+            );
+        } catch (Exception $e) {
+            return new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error' => 'Internal server error: ' . $e->getMessage(),
+                ],
+                500
+            );
+        }
+    }
+
+    /**
      * Handle get repayment schedule API request
      */
     public function handle_get_schedule(WP_REST_Request $request): WP_REST_Response {
@@ -2309,9 +2434,10 @@ final class EchoVault_Loan_Schedule_API {
      * Get repayment schedule data for a loan
      */
     private function get_repayment_schedule_data(int $loan_id): array {
-        error_log("EchoVault: get_repayment_schedule_data called for loan $loan_id");
-        $this->ensure_table_exists();
-        
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("EchoVault: get_repayment_schedule_data called for loan $loan_id");
+        }
+
         global $wpdb;
         $table_name = $this->get_table_name();
         
@@ -2345,27 +2471,49 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Delete existing repayment schedule for a loan
+     * Delete existing repayment schedule rows for a loan from the custom table.
+     * 
+     * @param int $loan_id The loan post ID
+     * @return int Number of rows deleted
      */
-    private function delete_existing_schedule(int $loan_id): void {
-        $args = [
-            'post_type' => self::REPAYMENT_SCHEDULE_POST_TYPE,
-            'post_status' => 'any',
-            'meta_query' => [
-                [
-                    'key' => 'related_loan',
-                    'value' => $loan_id,
-                    'compare' => '=',
-                ],
-            ],
-            'posts_per_page' => -1,
-            'fields' => 'ids',
-        ];
-
-        $query = new WP_Query($args);
-        foreach ($query->posts as $segment_id) {
-            wp_delete_post($segment_id, true);
+    private function delete_existing_schedule(int $loan_id): int {
+        global $wpdb;
+        $table_name = $this->get_table_name();
+        
+        // First check if table exists
+        $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name));
+        if ($table_exists !== $table_name) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log("EchoVault: Table $table_name does not exist, cannot delete schedules for loan $loan_id");
+            }
+            return 0;
         }
+        
+        // Count rows before deletion for logging
+        $count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_name WHERE related_loan = %d",
+            $loan_id
+        ));
+        
+        if ($count > 0) {
+            // Delete all schedule rows for this loan
+            $deleted = $wpdb->delete(
+                $table_name,
+                ['related_loan' => $loan_id],
+                ['%d']
+            );
+            
+            if ($deleted === false) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log("EchoVault: Failed to delete schedules for loan $loan_id: " . $wpdb->last_error);
+                }
+                return 0;
+            }
+            
+            return (int) $deleted;
+        }
+        
+        return 0;
     }
 }
 
