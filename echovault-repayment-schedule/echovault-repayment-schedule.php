@@ -2527,3 +2527,158 @@ new EchoVault_Loan_Schedule_API();
     }
 }
 
+/**
+ * EchoVault client API - return borrower profile for current logged-in user
+ *
+ * This endpoint looks up the borrower (Pods \"Borrower\" / borrower-profile)
+ * whose email_address matches the current WordPress user's email. It is used
+ * by the client portal so each user only ever sees their own borrower profile.
+ *
+ * Route: GET /wp-json/echovault/v1/me/borrower
+ */
+add_action('rest_api_init', function () {
+    register_rest_route(
+        'echovault/v1',
+        '/me/borrower',
+        [
+            'methods'             => 'GET',
+            'callback'            => 'echovault_get_current_user_borrower',
+            // JWT authentication plugin will set the current user based on
+            // the Authorization header. We also allow manual JWT decoding
+            // in the callback, so no extra permission check here.
+            'permission_callback' => '__return_true',
+        ]
+    );
+});
+
+/**
+ * REST callback: return borrower profile linked to current user.
+ *
+ * Matching rule:
+ *   borrower.email_address === wp_users.user_email
+ *
+ * If no borrower is found, returns 404 so the frontend can show a clear message.
+ *
+ * @param WP_REST_Request $request
+ * @return WP_REST_Response
+ */
+function echovault_get_current_user_borrower( WP_REST_Request $request ) {
+    $email = '';
+
+    // 1) Try WordPress current user (works when logged in via cookies)
+    $user = wp_get_current_user();
+    if ( $user && ! empty( $user->user_email ) ) {
+        $email = strtolower( trim( $user->user_email ) );
+    }
+
+    // 2) If no email yet, try to decode JWT from Authorization header
+    if ( empty( $email ) ) {
+        $auth_header = $request->get_header( 'authorization' );
+        if ( $auth_header && stripos( $auth_header, 'bearer ' ) === 0 ) {
+            $token = trim( substr( $auth_header, 7 ) );
+            $parts = explode( '.', $token );
+            if ( count( $parts ) === 3 ) {
+                $payload = json_decode(
+                    base64_decode( strtr( $parts[1], '-_', '+/' ) ),
+                    true
+                );
+                if ( is_array( $payload ) ) {
+                    $possible_email =
+                        $payload['data']['user']['user_email'] ??
+                        $payload['data']['user_email'] ??
+                        $payload['user_email'] ??
+                        $payload['email'] ??
+                        '';
+                    if ( ! empty( $possible_email ) ) {
+                        $email = strtolower( trim( $possible_email ) );
+                    }
+                }
+            }
+        }
+    }
+
+    if ( empty( $email ) ) {
+        return new WP_REST_Response(
+            [
+                'success' => false,
+                'error'   => 'Unable to determine user email from session or token.',
+            ],
+            401
+        );
+    }
+
+    // Query borrower-profile posts by PODS field \"email_address\"
+    // Pods registers its fields as post meta with the same name.
+    $query = new WP_Query(
+        [
+            'post_type'      => 'borrower-profile',
+            'posts_per_page' => 1,
+            'post_status'    => [ 'publish', 'draft' ],
+            'meta_query'     => [
+                [
+                    'key'     => 'email_address',
+                    'value'   => $email,
+                    'compare' => '=',
+                ],
+            ],
+        ]
+    );
+
+    if ( ! $query->have_posts() ) {
+        // Nothing matched this email
+        return new WP_REST_Response(
+            [
+                'success' => false,
+                'error'   => 'No borrower profile found for this user.',
+            ],
+            404
+        );
+    }
+
+    $post = $query->posts[0];
+
+    // Build a simple payload with the same fields the frontend needs.
+    $data = [
+        'id'                => $post->ID,
+        'title'             => get_the_title( $post ),
+        'first_name'        => get_post_meta( $post->ID, 'first_name', true ),
+        'last_name'         => get_post_meta( $post->ID, 'last_name', true ),
+        'email_address'     => get_post_meta( $post->ID, 'email_address', true ),
+        'borrower_id'       => get_post_meta( $post->ID, 'borrower_id', true ),
+        'date_of_birth'     => get_post_meta( $post->ID, 'date_of_birth', true ),
+        'mobile_number'     => get_post_meta( $post->ID, 'mobile_number', true ),
+        'registration_number' => get_post_meta( $post->ID, 'registration_number', true ),
+        'home_address'      => get_post_meta( $post->ID, 'home_address', true ),
+        'social_link_1'     => get_post_meta( $post->ID, 'social_link_1', true ),
+        'social_link_2'     => get_post_meta( $post->ID, 'social_link_2', true ),
+        'visa_type'         => get_post_meta( $post->ID, 'visa_type', true ),
+        'visa_expiry_date'  => get_post_meta( $post->ID, 'visa_expiry_date', true ),
+        'employment_status' => get_post_meta( $post->ID, 'employment_status', true ),
+        'work_rights'       => get_post_meta( $post->ID, 'work_rights', true ),
+        'employer_name'     => get_post_meta( $post->ID, 'employer_name', true ),
+        'job_title'         => get_post_meta( $post->ID, 'job_title', true ),
+        'monthly_income_aud' => get_post_meta( $post->ID, 'monthly_income_aud', true ),
+        'employment_start_date' => get_post_meta( $post->ID, 'employment_start_date', true ),
+        'employer_phone'    => get_post_meta( $post->ID, 'employer_phone', true ),
+        'employer_email'    => get_post_meta( $post->ID, 'employer_email', true ),
+        'employer_address'  => get_post_meta( $post->ID, 'employer_address', true ),
+        'marital_status'    => get_post_meta( $post->ID, 'marital_status', true ),
+        'family_relationship' => get_post_meta( $post->ID, 'family_relationship', true ),
+        'family_member_full_name' => get_post_meta( $post->ID, 'family_member_full_name', true ),
+        'family_member_phone' => get_post_meta( $post->ID, 'family_member_phone', true ),
+        'family_member_email' => get_post_meta( $post->ID, 'family_member_email', true ),
+        'bank_name'         => get_post_meta( $post->ID, 'bank_name', true ),
+        'account_name'      => get_post_meta( $post->ID, 'account_name', true ),
+        'bsb_number'        => get_post_meta( $post->ID, 'bsb_number', true ),
+        'account_number'    => get_post_meta( $post->ID, 'account_number', true ),
+    ];
+
+    return new WP_REST_Response(
+        [
+            'success'  => true,
+            'borrower' => $data,
+        ],
+        200
+    );
+}
+
