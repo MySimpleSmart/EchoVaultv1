@@ -301,10 +301,10 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
   const openPaymentModal = (segment) => {
     setSelectedSegment(segment);
     setPaymentForm({
-      paid_interest: segment.accrued_interest || 0,
-      paid_principles: (segment.start_balance - segment.remain_balance) || 0,
+      paid_interest: segment.paid_interest || 0,
+      paid_principles: segment.paid_principles || 0,
       payment_date: new Date().toISOString().split('T')[0],
-      repayment_note: ''
+      repayment_note: segment.repayment_note || ''
     });
     setShowPaymentModal(true);
   };
@@ -668,14 +668,42 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
                     />
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                      <input
+                        type="text"
+                        value={selectedSegment.segment_start || '-'}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                      <input
+                        type="text"
+                        value={selectedSegment.segment_end || '-'}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Remain Balance</label>
+                    <input
+                      type="text"
+                      value={`${getCurrencySymbol(currency)}${(selectedSegment.remain_balance || 0).toFixed(2)}`}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    />
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Paid Interest</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      value={paymentForm.paid_interest}
-                      onChange={(e) => setPaymentForm({...paymentForm, paid_interest: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      type="text"
+                      value={`${getCurrencySymbol(currency)}${(paymentForm.paid_interest || 0).toFixed(2)}`}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
                     />
                   </div>
                   <div>
@@ -698,7 +726,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Note (optional)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Note</label>
                     <textarea
                       value={paymentForm.repayment_note}
                       onChange={(e) => setPaymentForm({...paymentForm, repayment_note: e.target.value})}

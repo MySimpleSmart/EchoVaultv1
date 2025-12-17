@@ -160,7 +160,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto mb-4"></div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Loading Borrowers</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Loading Clients</h3>
           <p className="text-gray-600">Please wait while we fetch the latest data...</p>
         </div>
       </div>
@@ -177,7 +177,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Unable to Load Borrowers</h3>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">Unable to Load Clients</h3>
             <p className="text-gray-600 mb-6">{error}</p>
             <button 
               onClick={fetchBorrowers}
@@ -197,8 +197,8 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
         <div className="mb-8">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Borrower List</h1>
-              <p className="text-gray-600">Manage and view borrower profiles and loan information</p>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Client List</h1>
+              <p className="text-gray-600">Manage and view client profiles and loan information</p>
             </div>
             <button
               onClick={onCreateNew}
@@ -218,7 +218,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
             {/* Search Input */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Search Borrowers
+                Search Clients
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -276,7 +276,7 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
           {/* Filter Actions */}
           <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
             <div className="text-sm text-gray-600">
-              Showing {startIdx + 1}-{endIdx} of {filteredBorrowers.length} borrowers
+              Showing {startIdx + 1}-{endIdx} of {filteredBorrowers.length} clients
               {(searchTerm || statusFilter !== 'all' || documentTypeFilter !== 'all') && (
                 <span className="ml-2 text-blue-600">
                   (filtered)
@@ -301,8 +301,8 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No borrowers found</h3>
-            <p className="text-gray-500 mb-8 max-w-md mx-auto">Get started by creating your first borrower profile. This will help you manage loan applications and track borrower information.</p>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">No clients found</h3>
+            <p className="text-gray-500 mb-8 max-w-md mx-auto">Get started by creating your first client profile. This will help you manage loan applications and track client information.</p>
             <button
               onClick={onCreateNew}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 mx-auto"
@@ -320,9 +320,9 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No borrowers found</h3>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">No clients found</h3>
             <p className="text-gray-500 mb-8 max-w-md mx-auto">
-              No borrowers match your current search and filter criteria. Try adjusting your filters or search terms.
+              No clients match your current search and filter criteria. Try adjusting your filters or search terms.
             </p>
             <button
               onClick={clearFilters}
