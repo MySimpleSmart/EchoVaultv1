@@ -25,6 +25,51 @@ function getAuthHeaders(token) {
   };
 }
 
+// Helper function to extract ID from various formats (matching admin side logic)
+const toId = (val) => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'number' || typeof val === 'string') return String(val);
+  if (Array.isArray(val)) return toId(val[0]);
+  if (typeof val === 'object') {
+    if ('id' in val) return String(val.id);
+    if ('ID' in val) return String(val.ID);
+  }
+  return '';
+};
+
+// Helper function to check if a loan belongs to a borrower profile
+const isLoanForBorrower = (loan, profile) => {
+  if (!loan || !profile) return false;
+  
+  const profileId = String(profile.id);
+  const profileEmail = (profile.email_address || profile.meta?.email_address || '').toString().toLowerCase().trim();
+  
+  // Try multiple ways to extract borrower ID from loan (matching admin side logic)
+  let borrowerId = toId(loan.meta?.borrower_id) 
+    || toId(loan.borrower) 
+    || toId(loan.meta?.borrower) 
+    || toId(loan.meta?.borrower_profile)
+    || toId(loan.fields?.borrower_id) 
+    || toId(loan.acf?.borrower_id)
+    || toId(loan.fields?.borrower)
+    || toId(loan.acf?.borrower);
+  
+  // Check if borrower ID matches
+  if (borrowerId && String(borrowerId) === profileId) {
+    return true;
+  }
+  
+  // Fallback: check by email if available
+  if (profileEmail) {
+    const loanBorrowerEmail = (loan.meta?.borrower_email || loan.fields?.borrower_email || '').toString().toLowerCase().trim();
+    if (loanBorrowerEmail && loanBorrowerEmail === profileEmail) {
+      return true;
+    }
+  }
+  
+  return false;
+};
+
 function useCurrentClient(token) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -158,11 +203,8 @@ function DashboardPage({ token, user }) {
         );
         if (!resp.ok) throw new Error('Failed to load loans');
         const data = await resp.json();
-        const filtered = data.filter(
-          (loan) =>
-            String(loan.meta?.borrower_id) === String(profile.id) ||
-            String(loan.fields?.borrower_id) === String(profile.id)
-        );
+        // Use comprehensive filtering function
+        const filtered = data.filter((loan) => isLoanForBorrower(loan, profile));
         setLoans(filtered);
       } catch (e) {
         setLoanError(e.message || 'Failed to load loans');
@@ -253,11 +295,8 @@ function LoansPage({ token }) {
         );
         if (!resp.ok) throw new Error('Failed to load loans');
         const data = await resp.json();
-        const filtered = data.filter(
-          (loan) =>
-            String(loan.meta?.borrower_id) === String(profile.id) ||
-            String(loan.fields?.borrower_id) === String(profile.id)
-        );
+        // Use comprehensive filtering function
+        const filtered = data.filter((loan) => isLoanForBorrower(loan, profile));
         setLoans(filtered);
       } catch (e) {
         setError(e.message || 'Failed to load loans');
@@ -324,6 +363,7 @@ function LoansPage({ token }) {
 
 function LoanDetailPage({ token }) {
   const { id } = useParams();
+  const { profile } = useCurrentClient(token);
   const [loan, setLoan] = useState(null);
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -331,7 +371,7 @@ function LoanDetailPage({ token }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!token || !id) return;
+    if (!token || !id || !profile) return;
     const load = async () => {
       setLoading(true);
       setError('');
@@ -342,6 +382,14 @@ function LoanDetailPage({ token }) {
         );
         if (!loanResp.ok) throw new Error('Failed to load loan');
         const loanJson = await loanResp.json();
+        
+        // Security check: verify this loan belongs to the current user
+        if (!isLoanForBorrower(loanJson, profile)) {
+          setError('You do not have permission to view this loan.');
+          setLoading(false);
+          return;
+        }
+        
         setLoan(loanJson);
 
         const scheduleResp = await fetch(
@@ -361,7 +409,7 @@ function LoanDetailPage({ token }) {
       }
     };
     load();
-  }, [token, id]);
+  }, [token, id, profile]);
 
   const currency = loan?.loan_currency || loan?.meta?.loan_currency || 'AUD';
   const getCurrencySymbol = (c) => (c === 'MNT' ? '₮' : '$');
