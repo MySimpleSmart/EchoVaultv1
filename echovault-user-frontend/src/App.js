@@ -592,6 +592,62 @@ function NewsPage() {
   );
 }
 
+// Avatar utility function
+function getAvatarByBorrowerId(borrowerIdOrBorrower) {
+  const avatarImages = [
+    'monster.svg',
+    'monster (1).svg',
+    'monster (2).svg',
+    'monster (3).svg',
+    'monster (4).svg',
+    'monster (5).svg',
+    'monster (6).svg',
+    'monster (7).svg',
+    'monster (8).svg',
+    'monster (9).svg',
+    'monster (10).svg',
+    'monster (11).svg',
+    'monster (12).svg'
+  ];
+
+  let avatarFilename = null;
+  
+  if (typeof borrowerIdOrBorrower === 'object' && borrowerIdOrBorrower !== null) {
+    const borrower = borrowerIdOrBorrower;
+    let savedAvatar = borrower.avatar || 
+                     borrower.meta?.avatar || 
+                     borrower.fields?.avatar ||
+                     (Array.isArray(borrower.avatar) ? borrower.avatar[0] : null) ||
+                     (Array.isArray(borrower.meta?.avatar) ? borrower.meta.avatar[0] : null);
+    
+    if (savedAvatar && typeof savedAvatar === 'object') {
+      savedAvatar = savedAvatar.name || savedAvatar.filename || savedAvatar.url || savedAvatar;
+    }
+    
+    if (savedAvatar && typeof savedAvatar === 'string' && savedAvatar.trim()) {
+      avatarFilename = savedAvatar.trim();
+    }
+    
+    if (!avatarFilename) {
+      const borrowerId = borrower.id || borrower.ID;
+      if (borrowerId) {
+        const avatarIndex = borrowerId % avatarImages.length;
+        avatarFilename = avatarImages[avatarIndex];
+      }
+    }
+  } else if (typeof borrowerIdOrBorrower === 'number') {
+    const borrowerId = borrowerIdOrBorrower;
+    const avatarIndex = borrowerId % avatarImages.length;
+    avatarFilename = avatarImages[avatarIndex];
+  }
+  
+  if (!avatarFilename) {
+    avatarFilename = avatarImages[0];
+  }
+  
+  return `/avatars/${avatarFilename}`;
+}
+
 function ProfilePage({ token }) {
   const { profile, loading, error } = useCurrentClient(token);
   const [activeTab, setActiveTab] = useState('general');
@@ -599,15 +655,13 @@ function ProfilePage({ token }) {
   const field = (val) =>
     val === null || val === undefined || val === '' ? '-' : String(val);
 
+  const fullName = profile 
+    ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown Client'
+    : 'Unknown Client';
+  const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase();
+
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Profile</h1>
-        <p className="text-gray-600">
-          Read-only view of your EchoVault client profile.
-        </p>
-      </div>
-
       {loading && <p className="text-sm text-gray-500">Loading profile...</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!loading && !error && !profile && (
@@ -617,9 +671,45 @@ function ProfilePage({ token }) {
       )}
 
       {profile && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          {/* Tabs */}
-          <div className="border-b border-gray-200">
+        <>
+          {/* Header - matching admin side */}
+          <div className="mb-8">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+              <div className="flex items-center">
+                <div className="flex items-center">
+                  <img
+                    src={getAvatarByBorrowerId(profile)}
+                    alt={fullName}
+                    className="w-16 h-16 rounded-full object-cover mr-4"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                  <div 
+                    className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xl mr-4 hidden"
+                  >
+                    {initials}
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900 mb-1">
+                      {fullName}
+                    </h1>
+                    <div className="flex items-center gap-4">
+                      <p className="text-gray-600">ID: {profile.id || '-'}</p>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        Active
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            {/* Tabs */}
+            <div className="border-b border-gray-200">
             <nav className="flex space-x-8 px-6">
               <button
                 type="button"
@@ -849,6 +939,7 @@ function ProfilePage({ token }) {
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );
@@ -864,6 +955,7 @@ function ClientApp() {
       return null;
     }
   });
+  const { profile } = useCurrentClient(token);
   const location = useLocation();
 
   const getCurrentView = () => {
@@ -898,7 +990,7 @@ function ClientApp() {
       <div className="flex">
         <Sidebar currentView={getCurrentView()} />
         <div className="flex-1 flex flex-col">
-          <Header user={user} onLogout={handleLogout} />
+          <Header user={user} profile={profile} onLogout={handleLogout} />
         <Routes>
             <Route path="/" element={<DashboardPage token={token} user={user} />} />
             <Route path="/dashboard" element={<DashboardPage token={token} user={user} />} />

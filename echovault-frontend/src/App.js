@@ -347,11 +347,46 @@ function ClientDetailWrapper({ token, navigate, borrowers }) {
 
 function ClientEditWrapper({ token, navigate }) {
   const { id } = useParams();
+  const [borrower, setBorrower] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    if (token && id) {
+      setLoading(true);
+      const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+      fetch(`${apiBase}/wp/v2/borrower-profile/${id}?context=edit`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        mode: 'cors'
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          setBorrower(data);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    }
+  }, [token, id]);
+  
+  if (loading) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-gray-500">Loading borrower data...</p>
+      </div>
+    );
+  }
+  
+  if (!borrower) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-red-600">Failed to load borrower data.</p>
+      </div>
+    );
+  }
   
   return (
     <div className="p-6">
       <BorrowerProfile
-        editingBorrower={{ id }}
+        editingBorrower={borrower}
         isEditing={true}
         onProfileComplete={() => navigate(`/clients/${id}`)}
         onCancel={() => navigate(`/clients/${id}`)}

@@ -1,6 +1,62 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-const Header = ({ onLogout, user }) => {
+// Avatar utility function
+function getAvatarByBorrowerId(borrowerIdOrBorrower) {
+  const avatarImages = [
+    'monster.svg',
+    'monster (1).svg',
+    'monster (2).svg',
+    'monster (3).svg',
+    'monster (4).svg',
+    'monster (5).svg',
+    'monster (6).svg',
+    'monster (7).svg',
+    'monster (8).svg',
+    'monster (9).svg',
+    'monster (10).svg',
+    'monster (11).svg',
+    'monster (12).svg'
+  ];
+
+  let avatarFilename = null;
+  
+  if (typeof borrowerIdOrBorrower === 'object' && borrowerIdOrBorrower !== null) {
+    const borrower = borrowerIdOrBorrower;
+    let savedAvatar = borrower.avatar || 
+                     borrower.meta?.avatar || 
+                     borrower.fields?.avatar ||
+                     (Array.isArray(borrower.avatar) ? borrower.avatar[0] : null) ||
+                     (Array.isArray(borrower.meta?.avatar) ? borrower.meta.avatar[0] : null);
+    
+    if (savedAvatar && typeof savedAvatar === 'object') {
+      savedAvatar = savedAvatar.name || savedAvatar.filename || savedAvatar.url || savedAvatar;
+    }
+    
+    if (savedAvatar && typeof savedAvatar === 'string' && savedAvatar.trim()) {
+      avatarFilename = savedAvatar.trim();
+    }
+    
+    if (!avatarFilename) {
+      const borrowerId = borrower.id || borrower.ID;
+      if (borrowerId) {
+        const avatarIndex = borrowerId % avatarImages.length;
+        avatarFilename = avatarImages[avatarIndex];
+      }
+    }
+  } else if (typeof borrowerIdOrBorrower === 'number') {
+    const borrowerId = borrowerIdOrBorrower;
+    const avatarIndex = borrowerId % avatarImages.length;
+    avatarFilename = avatarImages[avatarIndex];
+  }
+  
+  if (!avatarFilename) {
+    avatarFilename = avatarImages[0];
+  }
+  
+  return `/avatars/${avatarFilename}`;
+}
+
+const Header = ({ onLogout, user, profile }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -131,15 +187,28 @@ const Header = ({ onLogout, user }) => {
               className="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-100 transition-colors duration-200"
             >
               <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-100">
-                <img
-                  src="/avatars/monster (1).svg"
-                  alt="User Avatar"
-                  className="w-full h-full object-contain"
-                />
+                {profile ? (
+                  <img
+                    src={getAvatarByBorrowerId(profile)}
+                    alt={profile.first_name || "User Avatar"}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      const fallback = e.target.nextSibling;
+                      if (fallback) fallback.style.display = 'flex';
+                    }}
+                  />
+                ) : null}
+                <div 
+                  className="w-full h-full bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xs"
+                  style={{ display: profile ? 'none' : 'flex' }}
+                >
+                  {profile?.first_name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || 'C'}
+                </div>
               </div>
               <div className="text-sm text-left">
                 <p className="font-medium text-gray-900">
-                  {user?.username || 'Client'}
+                  {profile?.first_name || user?.username || 'Client'}
                 </p>
                 <p className="text-gray-500">Client</p>
               </div>
