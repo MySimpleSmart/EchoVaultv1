@@ -315,6 +315,15 @@ function LoansPage({ token }) {
             <h1 className="text-2xl font-bold text-gray-900 mb-2">My Loans</h1>
             <p className="text-gray-600">View your active and past loans.</p>
           </div>
+          <button
+            onClick={() => navigate('/products')}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            <span>Apply a new loan</span>
+          </button>
         </div>
       </div>
       {loading && <p className="text-sm text-gray-500">Loading loans...</p>}
@@ -330,29 +339,44 @@ function LoansPage({ token }) {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Balance</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining Balance</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {loans.map((loan) => (
+              {loans.map((loan) => {
+                const currency = loan?.loan_currency || loan?.meta?.loan_currency || 'AUD';
+                const getCurrencySymbol = (c) => (c === 'MNT' ? '₮' : '$');
+                const totalBalance = loan.loan_amount || loan.meta?.loan_amount || 0;
+                const remainingBalance = loan.remaining_balance || loan.meta?.remaining_balance || loan.meta?.remain_balance || totalBalance;
+                
+                return (
                 <tr key={loan.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {loan.title?.rendered || loan.loan_title || `Loan #${loan.id}`}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{parseFloat(totalBalance).toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{parseFloat(remainingBalance).toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {loan.meta?.loan_status || 'Active'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
                       onClick={() => navigate(`/loans/${loan.id}`)}
-                      className="text-blue-600 hover:text-blue-700 font-medium"
+                        className="text-blue-600 hover:text-blue-700 font-medium"
                     >
                       View details
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -364,6 +388,7 @@ function LoansPage({ token }) {
 function LoanDetailPage({ token }) {
   const { id } = useParams();
   const { profile } = useCurrentClient(token);
+  const [activeTab, setActiveTab] = useState('Loan Details');
   const [loan, setLoan] = useState(null);
   const [coBorrower, setCoBorrower] = useState(null);
   const [schedule, setSchedule] = useState([]);
@@ -448,143 +473,217 @@ function LoanDetailPage({ token }) {
       </div>
       {loading && <p className="text-sm text-gray-500">Loading...</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      
       {loan && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-gray-500">Loan Title</p>
-              <p className="font-medium text-gray-900 mt-1">
+        <>
+          {/* Tabs Navigation */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+            <div className="border-b border-gray-200">
+              <nav className="flex space-x-8 px-6">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('Loan Details')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'Loan Details'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Loan Details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('Repayment Schedule')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'Repayment Schedule'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Repayment Schedule
+                </button>
+              </nav>
+            </div>
+          </div>
+
+          {/* Tab Content */}
+          {activeTab === 'Loan Details' && (
+            <>
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-500">Loan ID</p>
+                    <p className="font-medium text-gray-900 mt-1">
             {loan.title?.rendered || loan.loan_title || `Loan #${loan.id}`}
           </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Status</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {loan.meta?.loan_status || 'Active'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Loan Amount</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {getCurrencySymbol(currency)}{loan.loan_amount || loan.meta?.loan_amount || '0'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Currency</p>
-              <p className="font-medium text-gray-900 mt-1">{currency}</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Loan Product</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {loan.loan_product || loan.meta?.loan_product_name || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Loan Interest</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {loan.loan_interest || loan.meta?.loan_interest || '-'}%
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Loan Term</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {loan.loan_term || loan.meta?.loan_term ? `${loan.loan_term || loan.meta?.loan_term} months` : '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Repayment Method</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {loan.repayment_method || loan.meta?.repayment_method || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Repayment Frequency</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {Array.isArray(loan.repayment_frequency) ? loan.repayment_frequency[0] : (loan.repayment_frequency || loan.meta?.repayment_frequency || '-')}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Loan Start Date</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {loan.start_date || loan.meta?.start_date || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Loan End Date</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {loan.end_date || loan.meta?.end_date || '-'}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Repayment Account Details */}
-      {loan && (loan.loan_repayment_account || loan.meta?.loan_repayment_account) && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Repayment Account Details</h2>
-          <div className="text-sm">
-            <p className="text-gray-500">Repayment Account</p>
-            <p className="font-medium text-gray-900 mt-1 break-all">
-              {loan.loan_repayment_account || loan.meta?.loan_repayment_account || '-'}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Co-borrower Details */}
-      {coBorrower && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Co-borrower Details</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-gray-500">First Name</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {coBorrower.first_name || coBorrower.meta?.first_name || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Last Name</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {coBorrower.last_name || coBorrower.meta?.last_name || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Email Address</p>
-              <p className="font-medium text-gray-900 mt-1 break-all">
-                {coBorrower.email_address || coBorrower.meta?.email_address || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Mobile Number</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {coBorrower.mobile_number || coBorrower.meta?.mobile_number || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Date of Birth</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {coBorrower.date_of_birth || coBorrower.meta?.date_of_birth || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Document Type</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {coBorrower.document_type || coBorrower.meta?.document_type || '-'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Document Number</p>
-              <p className="font-medium text-gray-900 mt-1">
-                {coBorrower.document_number || coBorrower.meta?.document_number || '-'}
-              </p>
-            </div>
-          </div>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Status</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {loan.meta?.loan_status || 'Active'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Repayment Status</p>
+                    <div className="mt-1">
+                      {(() => {
+                        // Calculate overall repayment status from schedule
+                        let overallStatus = 'Pending';
+                        if (schedule && schedule.length > 0) {
+                          const paidCount = schedule.filter(s => s.repayment_status === 'Paid').length;
+                          const partialCount = schedule.filter(s => s.repayment_status === 'Partial').length;
+                          const overdueCount = schedule.filter(s => s.repayment_status === 'Overdue').length;
+                          
+                          if (paidCount === schedule.length) {
+                            overallStatus = 'Paid';
+                          } else if (overdueCount > 0) {
+                            overallStatus = 'Overdue';
+                          } else if (partialCount > 0 || paidCount > 0) {
+                            overallStatus = 'Partial';
+                          } else {
+                            overallStatus = 'Pending';
+                          }
+                        }
+                        
+                        const statusClass = 
+                          overallStatus === 'Paid' ? 'bg-green-100 text-green-800' :
+                          overallStatus === 'Partial' ? 'bg-yellow-100 text-yellow-800' :
+                          overallStatus === 'Overdue' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800';
+                        
+                        return (
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>
+                            {overallStatus}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Loan Amount</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {getCurrencySymbol(currency)}{loan.loan_amount || loan.meta?.loan_amount || '0'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Currency</p>
+                    <p className="font-medium text-gray-900 mt-1">{currency}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Loan Product</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {loan.loan_product || loan.meta?.loan_product_name || '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Loan Interest</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {loan.loan_interest || loan.meta?.loan_interest || '-'}%
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Loan Term</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {loan.loan_term || loan.meta?.loan_term ? `${loan.loan_term || loan.meta?.loan_term} months` : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Repayment Method</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {loan.repayment_method || loan.meta?.repayment_method || '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Repayment Frequency</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {Array.isArray(loan.repayment_frequency) ? loan.repayment_frequency[0] : (loan.repayment_frequency || loan.meta?.repayment_frequency || '-')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Loan Start Date</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {loan.start_date || loan.meta?.start_date || '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Loan End Date</p>
+                    <p className="font-medium text-gray-900 mt-1">
+                      {loan.end_date || loan.meta?.end_date || '-'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Repayment Account Details */}
+              {(loan.loan_repayment_account || loan.meta?.loan_repayment_account) && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Repayment Account Details</h2>
+                  <div className="text-sm">
+                    <p className="text-gray-500">Repayment Account</p>
+                    <p className="font-medium text-gray-900 mt-1 break-all">
+                      {loan.loan_repayment_account || loan.meta?.loan_repayment_account || '-'}
+                    </p>
+                  </div>
         </div>
       )}
 
-      {schedule.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+              {/* Co-borrower Details */}
+              {coBorrower && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Co-borrower Details</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500">First Name</p>
+                      <p className="font-medium text-gray-900 mt-1">
+                        {coBorrower.first_name || coBorrower.meta?.first_name || '-'}
+                      </p>
+          </div>
+                    <div>
+                      <p className="text-gray-500">Last Name</p>
+                      <p className="font-medium text-gray-900 mt-1">
+                        {coBorrower.last_name || coBorrower.meta?.last_name || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Email Address</p>
+                      <p className="font-medium text-gray-900 mt-1 break-all">
+                        {coBorrower.email_address || coBorrower.meta?.email_address || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Mobile Number</p>
+                      <p className="font-medium text-gray-900 mt-1">
+                        {coBorrower.mobile_number || coBorrower.meta?.mobile_number || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Date of Birth</p>
+                      <p className="font-medium text-gray-900 mt-1">
+                        {coBorrower.date_of_birth || coBorrower.meta?.date_of_birth || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Document Type</p>
+                      <p className="font-medium text-gray-900 mt-1">
+                        {coBorrower.document_type || coBorrower.meta?.document_type || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Document Number</p>
+                      <p className="font-medium text-gray-900 mt-1">
+                        {coBorrower.document_number || coBorrower.meta?.document_number || '-'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === 'Repayment Schedule' && (
+            <>
+              {schedule.length > 0 ? (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">Repayment Schedule</h2>
           </div>
@@ -649,6 +748,14 @@ function LoanDetailPage({ token }) {
           </table>
           </div>
         </div>
+              ) : (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+                  <p className="text-gray-600">No repayment schedule available.</p>
+        </div>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
   );
