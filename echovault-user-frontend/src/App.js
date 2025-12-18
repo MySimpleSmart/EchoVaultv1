@@ -238,7 +238,7 @@ function DashboardPage({ token, user }) {
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
               </svg>
-            </div>
+        </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Loans</p>
               <p className="text-2xl font-bold text-gray-900">{loans.length}</p>
@@ -365,6 +365,7 @@ function LoanDetailPage({ token }) {
   const { id } = useParams();
   const { profile } = useCurrentClient(token);
   const [loan, setLoan] = useState(null);
+  const [coBorrower, setCoBorrower] = useState(null);
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -391,6 +392,23 @@ function LoanDetailPage({ token }) {
         }
         
         setLoan(loanJson);
+
+        // Fetch co-borrower if exists
+        const coStatus = loanJson.co_borrower_status || loanJson.meta?.co_borrower_status;
+        const coId = toId(loanJson.meta?.co_borrower_id) || toId(loanJson.co_borrower) || toId(loanJson.meta?.co_borrower);
+        if (coStatus && /^yes$/i.test(String(coStatus)) && coId) {
+          try {
+            const cbResp = await fetch(
+              `${apiBase}/wp/v2/borrower-profile/${coId}?context=edit`,
+              { headers: getAuthHeaders(token), mode: 'cors' }
+            );
+            if (cbResp.ok) {
+              setCoBorrower(await cbResp.json());
+            }
+          } catch (e) {
+            console.error('Failed to load co-borrower:', e);
+          }
+        }
 
         const scheduleResp = await fetch(
           `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${id}`,
@@ -432,7 +450,7 @@ function LoanDetailPage({ token }) {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {loan && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
             <div>
               <p className="text-gray-500">Loan Title</p>
               <p className="font-medium text-gray-900 mt-1">
@@ -455,9 +473,116 @@ function LoanDetailPage({ token }) {
               <p className="text-gray-500">Currency</p>
               <p className="font-medium text-gray-900 mt-1">{currency}</p>
             </div>
+            <div>
+              <p className="text-gray-500">Loan Product</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {loan.loan_product || loan.meta?.loan_product_name || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Loan Interest</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {loan.loan_interest || loan.meta?.loan_interest || '-'}%
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Loan Term</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {loan.loan_term || loan.meta?.loan_term ? `${loan.loan_term || loan.meta?.loan_term} months` : '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Repayment Method</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {loan.repayment_method || loan.meta?.repayment_method || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Repayment Frequency</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {Array.isArray(loan.repayment_frequency) ? loan.repayment_frequency[0] : (loan.repayment_frequency || loan.meta?.repayment_frequency || '-')}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Loan Start Date</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {loan.start_date || loan.meta?.start_date || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Loan End Date</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {loan.end_date || loan.meta?.end_date || '-'}
+              </p>
+            </div>
           </div>
         </div>
       )}
+      
+      {/* Repayment Account Details */}
+      {loan && (loan.loan_repayment_account || loan.meta?.loan_repayment_account) && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Repayment Account Details</h2>
+          <div className="text-sm">
+            <p className="text-gray-500">Repayment Account</p>
+            <p className="font-medium text-gray-900 mt-1 break-all">
+              {loan.loan_repayment_account || loan.meta?.loan_repayment_account || '-'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Co-borrower Details */}
+      {coBorrower && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Co-borrower Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500">First Name</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {coBorrower.first_name || coBorrower.meta?.first_name || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Last Name</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {coBorrower.last_name || coBorrower.meta?.last_name || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Email Address</p>
+              <p className="font-medium text-gray-900 mt-1 break-all">
+                {coBorrower.email_address || coBorrower.meta?.email_address || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Mobile Number</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {coBorrower.mobile_number || coBorrower.meta?.mobile_number || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Date of Birth</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {coBorrower.date_of_birth || coBorrower.meta?.date_of_birth || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Document Type</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {coBorrower.document_type || coBorrower.meta?.document_type || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Document Number</p>
+              <p className="font-medium text-gray-900 mt-1">
+                {coBorrower.document_number || coBorrower.meta?.document_number || '-'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {schedule.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -467,19 +592,45 @@ function LoanDetailPage({ token }) {
             <table className="min-w-full divide-y divide-gray-200 text-xs">
             <thead className="bg-gray-50">
               <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">#</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Start</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">End</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Days</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Start Balance</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Accrued Interest</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Paid Interest</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Paid Principal</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total Payment</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Outstanding</th>
                   <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Remain Balance</th>
                   <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
               </tr>
             </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-              {schedule.map((r) => (
+              {schedule.map((r, index) => (
                   <tr key={r.id} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">{r.id}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-center">{index + 1}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{r.segment_start || '-'}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{r.segment_end || '-'}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">{r.loan_days || 0}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{(r.start_balance || 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{(r.accrued_interest || 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{(r.paid_interest || 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{(r.paid_principles || 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{(r.total_payment || 0).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {getCurrencySymbol(currency)}{(r.outstanding_interest || 0).toFixed(2)}
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 text-right">
                       {getCurrencySymbol(currency)}{(r.remain_balance || 0).toFixed(2)}
                     </td>
@@ -859,7 +1010,7 @@ function ProfilePage({ token }) {
                     {field(profile.home_address)}
                   </p>
                 </div>
-              </div>
+        </div>
             )}
 
             {activeTab === 'visa' && (
