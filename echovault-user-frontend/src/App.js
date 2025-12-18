@@ -194,6 +194,8 @@ function DashboardPage({ token, user }) {
   const [nextPayment, setNextPayment] = useState(null);
   const [loanPayments, setLoanPayments] = useState([]); // Store next payment for each loan
   const [paymentLoading, setPaymentLoading] = useState(false);
+  const [latestNews, setLatestNews] = useState(null);
+  const [newsLoading, setNewsLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -329,6 +331,49 @@ function DashboardPage({ token, user }) {
     loadLoans();
   }, [token, profile]);
 
+  // Fetch latest news post
+  useEffect(() => {
+    const loadNews = async () => {
+      setNewsLoading(true);
+      try {
+        // Get the category ID for "system-news" slug
+        const categoryResp = await fetch(
+          'https://yourfinservices.com.au/wp-json/wp/v2/categories?slug=system-news',
+          { mode: 'cors' }
+        );
+        
+        let categoryId = null;
+        if (categoryResp.ok) {
+          const categories = await categoryResp.json();
+          if (categories && categories.length > 0) {
+            categoryId = categories[0].id;
+          }
+        }
+        
+        // Fetch latest 1 post from the external site
+        const postsUrl = categoryId
+          ? `https://yourfinservices.com.au/wp-json/wp/v2/posts?categories=${categoryId}&per_page=1&_embed`
+          : 'https://yourfinservices.com.au/wp-json/wp/v2/posts?per_page=1&_embed';
+        
+        const resp = await fetch(postsUrl, {
+          mode: 'cors'
+        });
+        
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.length > 0) {
+            setLatestNews(data[0]);
+          }
+        }
+      } catch (e) {
+        console.error('Error loading news:', e);
+      } finally {
+        setNewsLoading(false);
+      }
+    };
+    loadNews();
+  }, []);
+
   const getCurrencyFromLoan = (loan) => {
     if (!loan) return 'AUD';
     return loan.loan_currency || loan.meta?.loan_currency || 'AUD';
@@ -401,13 +446,22 @@ function DashboardPage({ token, user }) {
       {loading && <p className="text-sm text-gray-500">Loading profile...</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {/* Next Payment Section - Prominent Display */}
-      {currentLoan && nextPayment && (
-        <div className={`mb-8 rounded-lg border-2 p-6 ${
-          nextPayment.isOverdue 
-            ? 'bg-red-50 border-red-300' 
-            : 'bg-white border-gray-200'
-        }`}>
+      {/* Next Payment and News Section - Side by Side */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8 items-stretch">
+        {/* Next Payment Section - 3/4 width */}
+        <div className="lg:col-span-3 flex">
+          {paymentLoading && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 w-full">
+              <p className="text-sm text-gray-500">Loading payment information...</p>
+            </div>
+          )}
+          
+          {!paymentLoading && currentLoan && nextPayment && (
+            <div className={`rounded-lg border-2 p-6 w-full flex flex-col ${
+              nextPayment.isOverdue 
+                ? 'bg-red-50 border-red-300' 
+                : 'bg-white border-gray-200'
+            }`}>
           <div className="flex items-start justify-between mb-4">
             <div>
               <h2 className="text-xl font-bold text-gray-900 mb-1">Next Payment</h2>
@@ -473,7 +527,7 @@ function DashboardPage({ token, user }) {
             </div>
           )}
           
-          <div className="mt-4">
+          <div className="mt-auto pt-4">
             <button
               onClick={() => navigate(`/loans/${currentLoan.id}`)}
               className="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center"
@@ -485,19 +539,110 @@ function DashboardPage({ token, user }) {
             </button>
         </div>
       </div>
-      )}
-
-      {currentLoan && !nextPayment && !paymentLoading && (
-        <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <p className="text-gray-600">No upcoming payments found for your current loan.</p>
+          )}
+          
+          {!paymentLoading && currentLoan && !nextPayment && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 w-full flex flex-col">
+              <p className="text-gray-600">No upcoming payments found for your current loan.</p>
+    </div>
+          )}
         </div>
-      )}
 
-      {paymentLoading && (
-        <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <p className="text-sm text-gray-500">Loading payment information...</p>
+        {/* Latest News Card - 1/4 width */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden h-full">
+            <div className="p-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-gray-900">Latest News</h2>
+                <button
+                  onClick={() => navigate('/news')}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  View all
+                </button>
+              </div>
+            </div>
+            
+            {newsLoading ? (
+              <div className="p-4">
+                <p className="text-xs text-gray-500">Loading news...</p>
+              </div>
+            ) : latestNews ? (
+              <div 
+                className="cursor-pointer hover:bg-gray-50 transition-colors"
+                onClick={() => {
+                  if (latestNews.link) {
+                    window.open(latestNews.link, '_blank', 'noopener,noreferrer');
+                  }
+                }}
+              >
+                {(() => {
+                  // Get featured image if available
+                  const getFeaturedImage = (post) => {
+                    if (!post) return null;
+                    
+                    const embeddedMedia = post._embedded?.['wp:featuredmedia']?.[0];
+                    if (embeddedMedia) {
+                      if (embeddedMedia.source_url) return embeddedMedia.source_url;
+                      if (embeddedMedia.media_details?.sizes) {
+                        const sizes = embeddedMedia.media_details.sizes;
+                        if (sizes.large?.source_url) return sizes.large.source_url;
+                        if (sizes['medium_large']?.source_url) return sizes['medium_large'].source_url;
+                        if (sizes.medium?.source_url) return sizes.medium.source_url;
+                        if (sizes.full?.source_url) return sizes.full.source_url;
+                      }
+                    }
+                    if (post.featured_media_url) return post.featured_media_url;
+                    return null;
+                  };
+                  
+                  const featuredImage = getFeaturedImage(latestNews);
+                  const excerpt = latestNews.excerpt?.rendered || latestNews.content?.rendered || '';
+                  const textContent = excerpt.replace(/<[^>]*>/g, '').substring(0, 100);
+                  
+                  return (
+                    <>
+                      {featuredImage && (
+                        <div className="w-full h-40 overflow-hidden bg-gray-100">
+                          <img 
+                            src={featuredImage} 
+                            alt={latestNews.title?.rendered || 'News image'}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+                      <div className="p-4">
+                        <h3 className="text-sm font-semibold text-gray-900 mb-2 line-clamp-2">
+                          {latestNews.title?.rendered || 'News'}
+                        </h3>
+                        <p className="text-xs text-gray-500 mb-2">
+                          {new Date(latestNews.date).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric',
+                            year: 'numeric'
+                          })}
+                        </p>
+                        {textContent && (
+                          <p className="text-xs text-gray-600 line-clamp-3">
+                            {textContent}...
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="p-4">
+                <p className="text-xs text-gray-500">No news available</p>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -1285,13 +1430,38 @@ function NewsPage() {
       setLoading(true);
       setError('');
       try {
-        const resp = await fetch(`${apiBase}/wp/v2/posts?per_page=5`, {
+        // First, get the category ID for "system-news" slug
+        const categoryResp = await fetch(
+          'https://yourfinservices.com.au/wp-json/wp/v2/categories?slug=system-news',
+          { mode: 'cors' }
+        );
+        
+        let categoryId = null;
+        if (categoryResp.ok) {
+          const categories = await categoryResp.json();
+          if (categories && categories.length > 0) {
+            categoryId = categories[0].id;
+          }
+        }
+        
+        // Fetch posts from the external site
+        // If category found, filter by category, otherwise fetch all posts
+        const postsUrl = categoryId
+          ? `https://yourfinservices.com.au/wp-json/wp/v2/posts?categories=${categoryId}&per_page=20&_embed`
+          : 'https://yourfinservices.com.au/wp-json/wp/v2/posts?per_page=20&_embed';
+        
+        const resp = await fetch(postsUrl, {
           mode: 'cors'
         });
-        if (!resp.ok) throw new Error('Failed to load news');
+        
+        if (!resp.ok) {
+          throw new Error('Failed to load news');
+        }
+        
         const data = await resp.json();
         setPosts(data || []);
       } catch (e) {
+        console.error('Error loading news:', e);
         setError(e.message || 'Failed to load news');
       } finally {
         setLoading(false);
@@ -1311,22 +1481,102 @@ function NewsPage() {
         </div>
       </div>
       {loading && <p className="text-sm text-gray-500">Loading news...</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="space-y-4">
-        {posts.map((post) => (
-          <article key={post.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+      {error && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-sm text-yellow-800">{error}</p>
+          <p className="text-xs text-yellow-600 mt-1">
+            Unable to load news from external source. Please try again later.
+          </p>
+        </div>
+      )}
+      
+      {!loading && !error && posts.length === 0 && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+          <p className="text-gray-600">No news articles found.</p>
+        </div>
+      )}
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {posts.map((post) => {
+          // Get featured image if available - try multiple paths
+          const getFeaturedImage = (post) => {
+            if (!post) return null;
+            
+            // Try embedded media
+            const embeddedMedia = post._embedded?.['wp:featuredmedia']?.[0];
+            if (embeddedMedia) {
+              // Try source_url first
+              if (embeddedMedia.source_url) return embeddedMedia.source_url;
+              // Try media_details sizes
+              if (embeddedMedia.media_details?.sizes) {
+                const sizes = embeddedMedia.media_details.sizes;
+                // Try large, medium_large, medium, or full
+                if (sizes.large?.source_url) return sizes.large.source_url;
+                if (sizes['medium_large']?.source_url) return sizes['medium_large'].source_url;
+                if (sizes.medium?.source_url) return sizes.medium.source_url;
+                if (sizes.full?.source_url) return sizes.full.source_url;
+              }
+            }
+            
+            // Try direct featured_media_url
+            if (post.featured_media_url) return post.featured_media_url;
+            
+            return null;
+          };
+          
+          const featuredImage = getFeaturedImage(post);
+          
+          // Get excerpt or content
+          const excerpt = post.excerpt?.rendered || post.content?.rendered || '';
+          // Strip HTML tags for preview (keep first 120 chars for grid layout)
+          const textContent = excerpt.replace(/<[^>]*>/g, '').substring(0, 120);
+          
+          return (
+            <article key={post.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow flex flex-col">
+              {featuredImage && (
+                <div className="w-full h-40 overflow-hidden bg-gray-100">
+                  <img 
+                    src={featuredImage} 
+                    alt={post.title?.rendered || 'News image'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+              <div className="p-4 flex-1 flex flex-col">
+                <h3 className="text-base font-semibold text-gray-900 mb-2 line-clamp-2">
               {post.title?.rendered || 'News'}
             </h3>
-            <p className="text-xs text-gray-500 mb-3">
-              {new Date(post.date).toLocaleDateString()}
-            </p>
-            <div
-              className="text-sm text-gray-600 line-clamp-3"
-              dangerouslySetInnerHTML={{ __html: post.excerpt?.rendered || post.content?.rendered || '' }}
-            />
+                <p className="text-xs text-gray-500 mb-2">
+                  {new Date(post.date).toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                  })}
+                </p>
+                <div className="text-xs text-gray-600 mb-3 flex-1 line-clamp-3">
+                  {textContent}
+                  {textContent.length >= 120 && '...'}
+                </div>
+                {post.link && (
+                  <a
+                    href={post.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center text-xs text-blue-600 hover:text-blue-700 font-medium mt-auto"
+                  >
+                    Read more
+                    <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </a>
+                )}
+              </div>
           </article>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
