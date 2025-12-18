@@ -44,7 +44,7 @@ const Login = ({ onLoginSuccess }) => {
 
       if (response.ok && data.token) {
         localStorage.setItem('jwt_token', data.token);
-        
+
         let userEmail = data.user_email || data.email || '';
         try {
           const parts = String(data.token).split('.');
@@ -90,10 +90,10 @@ const Login = ({ onLoginSuccess }) => {
               const userProfile = await userResponse.json();
               const profileEmail = userProfile.email || userProfile.user_email || '';
               if (profileEmail) userEmail = profileEmail;
-            }
+          }
           } catch (_) {}
         }
-        
+
         const userData = { 
           username: username, 
           user_email: userEmail,
@@ -110,7 +110,7 @@ const Login = ({ onLoginSuccess }) => {
           localStorage.removeItem('saved_password');
           localStorage.removeItem('remember_me');
         }
-        
+
         onLoginSuccess(data.token, userData);
       } else {
         setError(data.message || 'Login failed. Please check your credentials.');
@@ -127,9 +127,9 @@ const Login = ({ onLoginSuccess }) => {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-md p-8">
           <div className="text-center mb-8">
-            <img 
-              src="/Logo/echologo.png" 
-              alt="EchoVault" 
+            <img
+              src="/Logo/echologo.png"
+              alt="EchoVault"
               className="mx-auto mb-4 h-12 w-auto"
             />
             <p className="text-gray-600 text-sm">Loan Management System</p>
@@ -156,15 +156,15 @@ const Login = ({ onLoginSuccess }) => {
                 Password
               </label>
               <div className="relative">
-                <input
+              <input
                   type={showPassword ? "text" : "password"}
                   id="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  disabled={loading}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                disabled={loading}
                   className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
-                />
+              />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
@@ -217,17 +217,15 @@ const Login = ({ onLoginSuccess }) => {
             </button>
           </form>
 
-          <div className="mt-6 flex items-center justify-center space-x-2">
-            <button
-              type="button"
-              onClick={() => window.open('mailto:support@simplesmart.com', '_blank')}
-              className="px-3 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors duration-200 border border-blue-200 hover:border-blue-300"
+          <div className="mt-6 flex items-center justify-center">
+            <a
+              href="https://simplesmart.com.au/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
             >
-              Support
-            </button>
-            <span className="text-xs text-gray-500">
               by SimpleSmart
-            </span>
+            </a>
           </div>
         </div>
       </div>

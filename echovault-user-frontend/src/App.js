@@ -858,6 +858,7 @@ function DashboardPage({ token, user }) {
 function LoansPage({ token }) {
   const { profile } = useCurrentClient(token);
   const [loans, setLoans] = useState([]);
+  const [loanStatuses, setLoanStatuses] = useState({}); // Store repayment status for each loan
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
@@ -877,6 +878,74 @@ function LoansPage({ token }) {
         // Use comprehensive filtering function
         const filtered = data.filter((loan) => isLoanForBorrower(loan, profile));
         setLoans(filtered);
+
+        // Fetch repayment schedules for all loans to determine status
+        const statusMap = {};
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (const loan of filtered) {
+          try {
+            const scheduleResp = await fetch(
+              `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${loan.id}`,
+              { headers: { Authorization: `Bearer ${token}` }, mode: 'cors' }
+            );
+            if (scheduleResp.ok) {
+              const scheduleJson = await scheduleResp.json();
+              if (scheduleJson.success && scheduleJson.schedule && Array.isArray(scheduleJson.schedule)) {
+                const schedule = scheduleJson.schedule;
+                
+                // Calculate overall repayment status
+                let overallStatus = 'Pending';
+                let hasOverdue = false;
+                let paidCount = 0;
+                let partialCount = 0;
+                let totalCount = schedule.length;
+
+                schedule.forEach(r => {
+                  const status = (r.repayment_status || '').toLowerCase();
+                  if (status === 'paid') {
+                    paidCount++;
+                  } else if (status === 'partial') {
+                    partialCount++;
+                  } else {
+                    // Check if overdue
+                    const paymentDateStr = r.segment_end || r.repayment_date || r.end_date;
+                    if (paymentDateStr) {
+                      try {
+                        const paymentDate = new Date(paymentDateStr);
+                        paymentDate.setHours(0, 0, 0, 0);
+                        if (paymentDate < today && status !== 'paid') {
+                          hasOverdue = true;
+                        }
+                      } catch (e) {
+                        // Ignore date parsing errors
+                      }
+                    }
+                  }
+                });
+
+                // Determine overall status
+                if (hasOverdue) {
+                  overallStatus = 'Overdue';
+                } else if (paidCount === totalCount) {
+                  overallStatus = 'Paid';
+                } else if (partialCount > 0 || paidCount > 0) {
+                  overallStatus = 'Partial';
+                } else {
+                  overallStatus = 'Pending';
+                }
+
+                statusMap[loan.id] = overallStatus;
+              }
+            }
+          } catch (e) {
+            console.error(`Failed to load schedule for loan ${loan.id}:`, e);
+            statusMap[loan.id] = 'Pending';
+          }
+        }
+
+        setLoanStatuses(statusMap);
       } catch (e) {
         setError(e.message || 'Failed to load loans');
       } finally {
@@ -885,6 +954,24 @@ function LoansPage({ token }) {
     };
     load();
   }, [token, profile]);
+
+  const getRepaymentStatusBadge = (status) => {
+    const statusConfig = {
+      'Paid': { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300', icon: '✓' },
+      'Overdue': { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', icon: '⚠' },
+      'Partial': { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', icon: '◐' },
+      'Pending': { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300', icon: '○' }
+    };
+    
+    const config = statusConfig[status] || statusConfig['Pending'];
+
+  return (
+      <span className={`inline-flex items-center px-3 py-1 rounded-full border-2 ${config.bg} ${config.text} ${config.border} font-bold text-xs`}>
+        <span className="mr-1.5">{config.icon}</span>
+        <span>{status}</span>
+      </span>
+    );
+  };
 
   return (
     <div className="p-6">
@@ -895,7 +982,7 @@ function LoansPage({ token }) {
             <p className="text-gray-600">View your active and past loans.</p>
           </div>
           <button
-            onClick={() => navigate('/products')}
+            onClick={() => window.open('https://form.yourfinservices.com.au/loan-request/', '_blank', 'noopener,noreferrer')}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -920,7 +1007,8 @@ function LoansPage({ token }) {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Balance</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining Balance</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Status</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -945,6 +1033,9 @@ function LoansPage({ token }) {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {loan.meta?.loan_status || 'Active'}
                   </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      {getRepaymentStatusBadge(loanStatuses[loan.id] || 'Pending')}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
                       onClick={() => navigate(`/loans/${loan.id}`)}
