@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BrowserRouter,
   Routes,
@@ -190,13 +190,16 @@ function useCurrentClient(token) {
 function DashboardPage({ token, user }) {
   const { profile, loading, error } = useCurrentClient(token);
   const [loans, setLoans] = useState([]);
-  const [loanError, setLoanError] = useState('');
+  const [currentLoan, setCurrentLoan] = useState(null);
+  const [nextPayment, setNextPayment] = useState(null);
+  const [loanPayments, setLoanPayments] = useState([]); // Store next payment for each loan
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!token || !profile) return;
     const loadLoans = async () => {
       try {
-        setLoanError('');
         const resp = await fetch(
           `${apiBase}/wp/v2/loans?per_page=100&context=edit`,
           { headers: getAuthHeaders(token), mode: 'cors' }
@@ -206,14 +209,181 @@ function DashboardPage({ token, user }) {
         // Use comprehensive filtering function
         const filtered = data.filter((loan) => isLoanForBorrower(loan, profile));
         setLoans(filtered);
+        
+        // Get active loans
+        const activeLoans = filtered.filter(loan => {
+          const status = loan.meta?.loan_status || loan.loan_status || '';
+          return status && !/^(closed|completed|cancelled)$/i.test(status);
+        });
+        
+        if (activeLoans.length === 0 && filtered.length > 0) {
+          // If no active loans, use first loan
+          activeLoans.push(filtered[0]);
+        }
+        
+        if (activeLoans.length > 0) {
+          setPaymentLoading(true);
+          
+          // Fetch repayment schedules for all active loans
+          const allPayments = [];
+          const loanPaymentMap = []; // Store next payment for each loan
+          
+          for (const loan of activeLoans) {
+            try {
+              const scheduleResp = await fetch(
+                `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${loan.id}`,
+                { headers: { Authorization: `Bearer ${token}` }, mode: 'cors' }
+              );
+              if (scheduleResp.ok) {
+                const scheduleJson = await scheduleResp.json();
+                if (scheduleJson.success && scheduleJson.schedule && Array.isArray(scheduleJson.schedule)) {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  
+                  const loanPayments = [];
+                  
+                  // Find all unpaid payments for this loan
+                  scheduleJson.schedule.forEach(r => {
+                    const status = (r.repayment_status || '').toLowerCase();
+                    if (status !== 'paid') {
+                      // Use segment_end as payment date (fallback to repayment_date if available)
+                      const paymentDateStr = r.segment_end || r.repayment_date || r.end_date;
+                      if (paymentDateStr) {
+                        try {
+                          const paymentDate = new Date(paymentDateStr);
+                          paymentDate.setHours(0, 0, 0, 0);
+                          const isOverdue = paymentDate < today;
+                          
+                          const paymentInfo = {
+                            ...r,
+                            loan: loan,
+                            paymentDate: paymentDate,
+                            paymentDateStr: paymentDateStr,
+                            isOverdue
+                          };
+                          
+                          allPayments.push(paymentInfo);
+                          loanPayments.push(paymentInfo);
       } catch (e) {
-        setLoanError(e.message || 'Failed to load loans');
+                          console.error('Error parsing date:', paymentDateStr, e);
+                        }
+                      }
+                    }
+                  });
+                  
+                  // Find next payment for this loan (earliest unpaid payment)
+                  if (loanPayments.length > 0) {
+                    loanPayments.sort((a, b) => {
+                      if (a.isOverdue && !b.isOverdue) return -1;
+                      if (!a.isOverdue && b.isOverdue) return 1;
+                      return a.paymentDate - b.paymentDate;
+                    });
+                    loanPaymentMap.push({
+                      loan: loan,
+                      nextPayment: loanPayments[0]
+                    });
+                  } else {
+                    // No unpaid payments for this loan
+                    loanPaymentMap.push({
+                      loan: loan,
+                      nextPayment: null
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              console.error(`Failed to load repayment schedule for loan ${loan.id}:`, e);
+              loanPaymentMap.push({
+                loan: loan,
+                nextPayment: null
+              });
+            }
+          }
+          
+          setLoanPayments(loanPaymentMap);
+          
+          // Find the most urgent next payment: prioritize overdue first, then closest due date
+          if (allPayments.length > 0) {
+            // Sort: overdue first, then by date (earliest first)
+            allPayments.sort((a, b) => {
+              if (a.isOverdue && !b.isOverdue) return -1;
+              if (!a.isOverdue && b.isOverdue) return 1;
+              return a.paymentDate - b.paymentDate;
+            });
+            
+            const next = allPayments[0];
+            setCurrentLoan(next.loan);
+            setNextPayment(next);
+          } else if (activeLoans.length > 0) {
+            // No payments found, but we have active loans - set first active loan
+            setCurrentLoan(activeLoans[0]);
+          }
+          
+          setPaymentLoading(false);
+        }
+      } catch (e) {
+        console.error('Failed to load loans:', e);
+        setPaymentLoading(false);
       }
     };
     loadLoans();
   }, [token, profile]);
 
-  const nextLoan = useMemo(() => loans[0] || null, [loans]);
+  const getCurrencyFromLoan = (loan) => {
+    if (!loan) return 'AUD';
+    return loan.loan_currency || loan.meta?.loan_currency || 'AUD';
+  };
+  
+  const currency = nextPayment?.loan 
+    ? getCurrencyFromLoan(nextPayment.loan)
+    : (currentLoan?.loan_currency || currentLoan?.meta?.loan_currency || 'AUD');
+  const getCurrencySymbol = (c) => (c === 'MNT' ? '₮' : '$');
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'N/A';
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    } catch (e) {
+      return 'N/A';
+    }
+  };
+  
+  const getFullName = () => {
+    if (!profile) return user?.username || 'Client';
+    const firstName = profile.first_name || profile.meta?.first_name || '';
+    const lastName = profile.last_name || profile.meta?.last_name || '';
+    if (firstName && lastName) {
+      return `${firstName} ${lastName}`;
+    }
+    return firstName || lastName || profile.title?.rendered || user?.username || 'Client';
+  };
+
+  const getStatusBadge = (payment) => {
+    if (!payment) return null;
+    
+    let status = payment.repayment_status || 'Pending';
+    if (payment.isOverdue && status !== 'Paid') {
+      status = 'Overdue';
+    }
+    
+    const statusConfig = {
+      'Paid': { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300', icon: '✓' },
+      'Overdue': { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', icon: '⚠' },
+      'Partial': { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', icon: '◐' },
+      'Pending': { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300', icon: '○' }
+    };
+    
+    const config = statusConfig[status] || statusConfig['Pending'];
+
+  return (
+      <div className={`inline-flex items-center px-4 py-2 rounded-lg border-2 ${config.bg} ${config.text} ${config.border} font-bold text-sm`}>
+        <span className="mr-2">{config.icon}</span>
+        <span>{status}</span>
+      </div>
+    );
+  };
 
   return (
     <div className="p-6">
@@ -222,7 +392,7 @@ function DashboardPage({ token, user }) {
       <div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Dashboard</h1>
             <p className="text-gray-600">
-              Welcome back, {user?.username || profile?.first_name || profile?.title?.rendered || 'Client'}
+              Welcome back, {getFullName()}
             </p>
           </div>
         </div>
@@ -231,6 +401,105 @@ function DashboardPage({ token, user }) {
       {loading && <p className="text-sm text-gray-500">Loading profile...</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      {/* Next Payment Section - Prominent Display */}
+      {currentLoan && nextPayment && (
+        <div className={`mb-8 rounded-lg border-2 p-6 ${
+          nextPayment.isOverdue 
+            ? 'bg-red-50 border-red-300' 
+            : 'bg-white border-gray-200'
+        }`}>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 mb-1">Next Payment</h2>
+              <p className="text-sm text-gray-600">
+                {currentLoan.title?.rendered || currentLoan.loan_title || `Loan #${currentLoan.id}`}
+                {loans.length > 1 && (
+                  <span className="ml-2 text-xs text-gray-500">
+                    ({loans.length} active {loans.length === 1 ? 'loan' : 'loans'})
+                  </span>
+                )}
+              </p>
+        </div>
+            {getStatusBadge(nextPayment)}
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-1">Payment Date</p>
+              <p className={`text-lg font-semibold ${
+                nextPayment.isOverdue ? 'text-red-700' : 'text-gray-900'
+              }`}>
+                {formatDate(nextPayment.paymentDateStr)}
+              </p>
+              {nextPayment.isOverdue && (
+                <p className="text-xs text-red-600 mt-1 font-medium">⚠ Past due date</p>
+              )}
+            </div>
+            
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-1">Total Payment Amount</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {getCurrencySymbol(currency)}{(() => {
+                  // Calculate total payment: use total_payment if available and > 0, otherwise sum principal + interest
+                  const totalPayment = parseFloat(nextPayment.total_payment || 0);
+                  if (totalPayment > 0) {
+                    return totalPayment.toFixed(2);
+                  }
+                  // Fallback: calculate from principal + interest
+                  const principal = parseFloat(nextPayment.paid_principles || nextPayment.paid_principal || 0);
+                  const interest = parseFloat(nextPayment.accrued_interest || nextPayment.paid_interest || 0);
+                  const calculated = principal + interest;
+                  return calculated > 0 ? calculated.toFixed(2) : '0.00';
+                })()}
+              </p>
+            </div>
+            
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-1">Interest Amount</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {getCurrencySymbol(currency)}{parseFloat(nextPayment.accrued_interest || nextPayment.paid_interest || 0).toFixed(2)}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Principal: {getCurrencySymbol(currency)}{parseFloat(nextPayment.paid_principles || nextPayment.paid_principal || 0).toFixed(2)}
+              </p>
+            </div>
+          </div>
+          
+          {nextPayment.isOverdue && (
+            <div className="mt-4 p-4 bg-red-100 border border-red-300 rounded-lg">
+              <p className="text-sm font-medium text-red-800">
+                ⚠ This payment is overdue. Please make payment as soon as possible to avoid additional fees.
+              </p>
+            </div>
+          )}
+          
+          <div className="mt-4">
+            <button
+              onClick={() => navigate(`/loans/${currentLoan.id}`)}
+              className="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center"
+            >
+              View full loan details
+              <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+        </div>
+      </div>
+      )}
+
+      {currentLoan && !nextPayment && !paymentLoading && (
+        <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <p className="text-gray-600">No upcoming payments found for your current loan.</p>
+        </div>
+      )}
+
+      {paymentLoading && (
+        <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <p className="text-sm text-gray-500">Loading payment information...</p>
+        </div>
+      )}
+
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center">
@@ -238,40 +507,205 @@ function DashboardPage({ token, user }) {
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
               </svg>
-        </div>
+            </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Loans</p>
               <p className="text-2xl font-bold text-gray-900">{loans.length}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 col-span-2">
-          <div className="flex items-center">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Next Loan</p>
-              {loanError && <p className="mt-1 text-sm text-red-600">{loanError}</p>}
-          {!loanError && !nextLoan && (
-                <p className="mt-1 text-sm text-gray-600">No active loans found.</p>
-          )}
-          {nextLoan && (
-                <div className="mt-1">
-                  <p className="text-lg font-semibold text-gray-900">
-                {nextLoan.title?.rendered || nextLoan.loan_title || `Loan #${nextLoan.id}`}
-              </p>
-                  <p className="text-sm text-gray-500">
-                Status: {nextLoan.meta?.loan_status || 'Active'}
-              </p>
-            </div>
-          )}
+        
+        {currentLoan && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-green-100 rounded-lg">
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Current Loan Balance</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {getCurrencySymbol(currency)}{parseFloat(currentLoan.remaining_balance || currentLoan.meta?.remaining_balance || currentLoan.loan_amount || currentLoan.meta?.loan_amount || 0).toFixed(2)}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
+        
+        {nextPayment && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center">
+              <div className={`p-3 rounded-lg ${
+                nextPayment.isOverdue ? 'bg-red-100' : 'bg-purple-100'
+              }`}>
+                <svg className={`w-6 h-6 ${nextPayment.isOverdue ? 'text-red-600' : 'text-purple-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Days Until Payment</p>
+                <p className={`text-2xl font-bold ${
+                  nextPayment.isOverdue ? 'text-red-600' : 'text-gray-900'
+                }`}>
+                  {(() => {
+                    if (!nextPayment.paymentDate) return 'N/A';
+                    try {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const paymentDate = new Date(nextPayment.paymentDate);
+                      paymentDate.setHours(0, 0, 0, 0);
+                      const diffTime = paymentDate - today;
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      if (diffDays < 0) return `${Math.abs(diffDays)} days overdue`;
+                      if (diffDays === 0) return 'Due today';
+                      return `${diffDays} days`;
+                    } catch (e) {
+                      return 'N/A';
+                    }
+                  })()}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* All Loans Section - Show when user has multiple loans */}
+      {loans.length > 1 && loanPayments.length > 0 && (
+        <div className="mb-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-gray-900">All Loans</h2>
+            <p className="text-sm text-gray-600 mt-1">View status and next payment for all your loans</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {loanPayments.map(({ loan, nextPayment: loanNextPayment }) => {
+              const loanCurrency = loan.loan_currency || loan.meta?.loan_currency || 'AUD';
+              const loanCurrencySymbol = getCurrencySymbol(loanCurrency);
+              const loanBalance = parseFloat(loan.remaining_balance || loan.meta?.remaining_balance || loan.loan_amount || loan.meta?.loan_amount || 0);
+              const loanStatus = loan.meta?.loan_status || loan.loan_status || 'Active';
+              
+              // Calculate total payment for display
+              const getTotalPayment = (payment) => {
+                if (!payment) return 0;
+                const totalPayment = parseFloat(payment.total_payment || 0);
+                if (totalPayment > 0) return totalPayment;
+                const principal = parseFloat(payment.paid_principles || payment.paid_principal || 0);
+                const interest = parseFloat(payment.accrued_interest || payment.paid_interest || 0);
+                return principal + interest;
+              };
+              
+              // Calculate days until payment
+              const getDaysUntilPayment = (payment) => {
+                if (!payment || !payment.paymentDate) return 'N/A';
+                try {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const paymentDate = new Date(payment.paymentDate);
+                  paymentDate.setHours(0, 0, 0, 0);
+                  const diffTime = paymentDate - today;
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  if (diffDays < 0) return `${Math.abs(diffDays)} days overdue`;
+                  if (diffDays === 0) return 'Due today';
+                  return `${diffDays} days`;
+                } catch (e) {
+                  return 'N/A';
+                }
+              };
+              
+              const isCurrentLoan = currentLoan && currentLoan.id === loan.id;
+              
+              return (
+                <div
+                  key={loan.id}
+                  className={`bg-white rounded-lg border-2 p-5 cursor-pointer transition-all hover:shadow-md ${
+                    isCurrentLoan
+                      ? 'border-blue-500 bg-blue-50'
+                      : loanNextPayment?.isOverdue
+                      ? 'border-red-300 bg-red-50'
+                      : 'border-gray-200'
+                  }`}
+                  onClick={() => navigate(`/loans/${loan.id}`)}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900 mb-1">
+                        {loan.title?.rendered || loan.loan_title || `Loan #${loan.id}`}
+                      </h3>
+                      {isCurrentLoan && (
+                        <span className="inline-block px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+                          Most Urgent
+                        </span>
+                      )}
+                    </div>
+                    {loanNextPayment && getStatusBadge(loanNextPayment)}
+                  </div>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Status:</span>
+                      <span className="font-medium text-gray-900">{loanStatus}</span>
+                    </div>
+                    
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Balance:</span>
+                      <span className="font-medium text-gray-900">
+                        {loanCurrencySymbol}{loanBalance.toFixed(2)}
+                      </span>
+                    </div>
+                    
+                    {loanNextPayment ? (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Next Payment:</span>
+                          <span className={`font-medium ${
+                            loanNextPayment.isOverdue ? 'text-red-600' : 'text-gray-900'
+                          }`}>
+                            {formatDate(loanNextPayment.paymentDateStr)}
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Amount:</span>
+                          <span className="font-semibold text-gray-900">
+                            {loanCurrencySymbol}{getTotalPayment(loanNextPayment).toFixed(2)}
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Days:</span>
+                          <span className={`font-medium ${
+                            loanNextPayment.isOverdue ? 'text-red-600' : 'text-gray-900'
+                          }`}>
+                            {getDaysUntilPayment(loanNextPayment)}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center py-2 text-gray-500 text-xs">
+                        No upcoming payments
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="mt-4 pt-3 border-t border-gray-200">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/loans/${loan.id}`);
+                      }}
+                      className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      View Details →
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
