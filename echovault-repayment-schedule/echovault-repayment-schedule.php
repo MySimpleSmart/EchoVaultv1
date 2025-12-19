@@ -843,33 +843,146 @@ final class EchoVault_Loan_Schedule_API {
         $balance = $principal;
         $start   = new DateTime($payload['start_date']);
 
-        // Equal Total Payment (Amortization)
-        // Formula: P = (P * r) / (1 - (1 + r)^(-n))
-        // Where P = principal, r = rate per period, n = number of periods
+        // Equal Total Payment (Amortization with Daily Interest)
+        // Fixed total payment per period, but interest calculated daily based on actual days
+        // Interest rate is monthly (e.g., 4% per month), calculated using: Balance × Monthly Rate × (Days / 30)
+        // We use an iterative approach: calculate approximate payment, then adjust for actual daily interest
         if ($payload['repayment_method'] === 'Equal Total') {
-            // Handle zero interest rate case
-            $payment = $rate == 0
+            $monthly_rate = $payload['loan_interest'] / 100; // Monthly rate as decimal (e.g., 0.04 for 4%)
+            
+            // First, calculate approximate payment using average 30-day periods
+            // This gives us a target payment amount
+            $avg_rate_per_period = $monthly_rate; // For monthly frequency, rate per period = monthly rate
+            if ($payload['repayment_frequency'] === 'Weekly') {
+                $avg_rate_per_period = $monthly_rate * (7 / 30); // Weekly: 7 days out of 30
+            } elseif ($payload['repayment_frequency'] === 'Fortnightly') {
+                $avg_rate_per_period = $monthly_rate * (14 / 30); // Fortnightly: 14 days out of 30
+            }
+            
+            // Calculate target payment using amortization formula with average rate
+            $target_payment = $avg_rate_per_period == 0
                 ? $principal / $periods
-                : ($principal * $rate) / (1 - pow(1 + $rate, -$periods));
-
+                : ($principal * $avg_rate_per_period) / (1 - pow(1 + $avg_rate_per_period, -$periods));
+            
+            $period_start = clone $start;
+            $current_balance = $principal;
+            
+            // Calculate actual payments with daily interest
+            // We'll adjust the payment slightly to account for varying days, but keep it approximately equal
             for ($i = 0; $i < $periods; $i++) {
-                $interest       = $balance * $rate;
-                $principal_paid = min($payment - $interest, $balance);
-                $balance        = max(0, $balance - $principal_paid);
-
-                $rows[] = $this->row($i, $start, $payload['repayment_frequency'], $payment, $principal_paid, $interest, $balance);
+                // Calculate payment date for this period
+                $period_end = clone $period_start;
+                switch ($payload['repayment_frequency']) {
+                    case 'Weekly':
+                        $period_end->modify('+7 days');
+                        break;
+                    case 'Fortnightly':
+                        $period_end->modify('+14 days');
+                        break;
+                    default: // Monthly
+                        $period_end->modify('+1 month');
+                        break;
+                }
+                
+                // Calculate actual number of days in this period
+                $days_in_period = $period_start->diff($period_end)->days;
+                if ($days_in_period <= 0) {
+                    $days_in_period = 1; // Fallback to prevent division by zero
+                }
+                
+                // Calculate interest using daily calculation: Balance × Monthly Rate × (Days / 30)
+                $interest = $current_balance * $monthly_rate * ($days_in_period / 30);
+                
+                // For the last period, pay remaining balance
+                if ($i === $periods - 1) {
+                    $principal_paid = $current_balance;
+                    $payment = $interest + $principal_paid;
+                    $current_balance = 0;
+                } else {
+                    // Calculate principal portion to keep total payment approximately equal
+                    $principal_paid = min($target_payment - $interest, $current_balance);
+                    $payment = $interest + $principal_paid;
+                    $current_balance = max(0, $current_balance - $principal_paid);
+                }
+                
+                $rows[] = $this->row_with_date($i, $period_start, $period_end, $payment, $principal_paid, $interest, $current_balance);
+                
+                // Move to next period start
+                $period_start = clone $period_end;
             }
         }
-        // Interest-Only Payment
+        // Interest-Only Payment (with Daily Interest)
         // Pay only interest for all periods except the last, where principal + interest is paid
+        // Interest rate is monthly (e.g., 4% per month), calculated using: Balance × Monthly Rate × (Days / 30)
         elseif ($payload['repayment_method'] === 'Interest-Only') {
-            $interest_only = $balance * $rate;
-            // All periods except the last: pay only interest
+            $monthly_rate = $payload['loan_interest'] / 100; // Monthly rate as decimal (e.g., 0.04 for 4%)
+            $period_start = clone $start;
+            $current_balance = $balance;
+            
+            // All periods except the last: pay only interest (calculated daily)
             for ($i = 0; $i < $periods - 1; $i++) {
-                $rows[] = $this->row($i, $start, $payload['repayment_frequency'], $interest_only, 0, $interest_only, $balance);
+                // Calculate payment date for this period
+                $period_end = clone $period_start;
+                switch ($payload['repayment_frequency']) {
+                    case 'Weekly':
+                        $period_end->modify('+7 days');
+                        break;
+                    case 'Fortnightly':
+                        $period_end->modify('+14 days');
+                        break;
+                    default: // Monthly
+                        $period_end->modify('+1 month');
+                        break;
+                }
+                
+                // Calculate actual number of days in this period
+                $days_in_period = $period_start->diff($period_end)->days;
+                if ($days_in_period <= 0) {
+                    $days_in_period = 1; // Fallback to prevent division by zero
+                }
+                
+                // Calculate interest using daily calculation: Balance × Monthly Rate × (Days / 30)
+                $interest = $current_balance * $monthly_rate * ($days_in_period / 30);
+                
+                // Pay only interest, no principal
+                $payment = $interest;
+                $principal_paid = 0;
+                // Balance remains the same (no principal paid)
+                
+                $rows[] = $this->row_with_date($i, $period_start, $period_end, $payment, $principal_paid, $interest, $current_balance);
+                
+                // Move to next period start
+                $period_start = clone $period_end;
             }
+            
             // Final period: pay interest + full principal
-            $rows[] = $this->row($periods - 1, $start, $payload['repayment_frequency'], $interest_only + $balance, $balance, $interest_only, 0);
+            $period_end = clone $period_start;
+            switch ($payload['repayment_frequency']) {
+                case 'Weekly':
+                    $period_end->modify('+7 days');
+                    break;
+                case 'Fortnightly':
+                    $period_end->modify('+14 days');
+                    break;
+                default: // Monthly
+                    $period_end->modify('+1 month');
+                    break;
+            }
+            
+            $days_in_period = $period_start->diff($period_end)->days;
+            if ($days_in_period <= 0) {
+                $days_in_period = 1;
+            }
+            
+            // Calculate interest for final period
+            $interest = $current_balance * $monthly_rate * ($days_in_period / 30);
+            
+            // Pay interest + full principal
+            $principal_paid = $current_balance;
+            $payment = $interest + $principal_paid;
+            $current_balance = 0;
+            
+            $rows[] = $this->row_with_date($periods - 1, $period_start, $period_end, $payment, $principal_paid, $interest, $current_balance);
         }
         // Equal Principal Payment (Default)
         // Fixed principal amount per period, interest calculated daily on remaining balance
