@@ -1028,7 +1028,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
         co_borrower: form.co_borrower || '',
         loan_product: (selectedProduct && selectedProduct.product_name) ? selectedProduct.product_name : String(form.loan_product || ''),
         loan_currency: form.loan_currency,
-        loan_interest: form.loan_interest,
+        loan_interest: form.loan_interest || selectedProduct?.interest_rate || '',
         loan_term: form.loan_term,
         loan_amount: form.loan_amount,
         repayment_method: form.repayment_method,
@@ -1056,7 +1056,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
       Object.entries(data).forEach(([k, v]) => fd.append(k, v));
       // Also include as meta for backends expecting meta[...] keys
       fd.append('meta[loan_currency]', form.loan_currency);
-      fd.append('meta[loan_interest]', form.loan_interest);
+      fd.append('meta[loan_interest]', form.loan_interest || selectedProduct?.interest_rate || '');
       fd.append('meta[loan_id]', form.loan_id);
       if (form.loan_note) {
         fd.append('meta[loan_note]', form.loan_note);
@@ -1268,7 +1268,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
         co_borrower: form.co_borrower || '',
         loan_product: (selectedProduct && selectedProduct.product_name) ? selectedProduct.product_name : String(form.loan_product || ''),
         loan_currency: form.loan_currency,
-        loan_interest: form.loan_interest,
+        loan_interest: form.loan_interest || selectedProduct?.interest_rate || '',
         loan_term: form.loan_term,
         loan_amount: form.loan_amount,
         repayment_method: form.repayment_method,
@@ -1294,7 +1294,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
       Object.entries(data).forEach(([k, v]) => fd.append(k, v));
       // Also include as meta for backends expecting meta[...] keys
       fd.append('meta[loan_currency]', form.loan_currency);
-      fd.append('meta[loan_interest]', form.loan_interest);
+      fd.append('meta[loan_interest]', form.loan_interest || selectedProduct?.interest_rate || '');
       fd.append('meta[loan_id]', form.loan_id);
       if (form.loan_note) {
         fd.append('meta[loan_note]', form.loan_note);
@@ -1733,25 +1733,45 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                       <table className="min-w-full divide-y divide-gray-200 text-sm">
                         <thead className="bg-green-100">
                           <tr>
-                            <th className="px-3 py-2 text-left font-medium text-gray-700">#</th>
-                            <th className="px-3 py-2 text-left font-medium text-gray-700">Date</th>
-                            <th className="px-3 py-2 text-right font-medium text-gray-700">Payment</th>
-                            <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-700">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">Start Date</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">End Date</th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-700">Days</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Start Balance</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Interest</th>
-                            <th className="px-3 py-2 text-right font-medium text-gray-700">Balance</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Total Payment</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Remaining Balance</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
-                          {apiSchedule.map((row) => (
-                            <tr key={row.idx} className="hover:bg-green-50">
-                              <td className="px-3 py-1">{row.idx}</td>
-                              <td className="px-3 py-1">{new Date(row.date).toLocaleDateString()}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
-                            </tr>
-                          ))}
+                          {apiSchedule.map((row, index) => {
+                            // Calculate start balance: for first row it's the loan amount, for others it's previous row's remaining balance
+                            const startBalance = index === 0 
+                              ? Number(form.loan_amount) 
+                              : (apiSchedule[index - 1]?.balance || Number(form.loan_amount));
+                            const startDate = row.period_start 
+                              ? new Date(row.period_start) 
+                              : (index === 0 ? new Date(form.start_date) : new Date(apiSchedule[index - 1]?.date || form.start_date));
+                            const endDate = row.period_end 
+                              ? new Date(row.period_end) 
+                              : new Date(row.date);
+                            const days = row.days || Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+                            
+                            return (
+                              <tr key={row.idx} className="hover:bg-green-50">
+                                <td className="px-3 py-1 text-center">{row.idx}</td>
+                                <td className="px-3 py-1">{startDate.toLocaleDateString('en-CA')}</td>
+                                <td className="px-3 py-1">{endDate.toLocaleDateString('en-CA')}</td>
+                                <td className="px-3 py-1 text-center">{days}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{startBalance.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1768,25 +1788,43 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                       <table className="min-w-full divide-y divide-gray-200 text-sm">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-3 py-2 text-left font-medium text-gray-700">#</th>
-                            <th className="px-3 py-2 text-left font-medium text-gray-700">Date</th>
-                            <th className="px-3 py-2 text-right font-medium text-gray-700">Payment</th>
-                            <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-700">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">Start Date</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">End Date</th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-700">Days</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Start Balance</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Interest</th>
-                            <th className="px-3 py-2 text-right font-medium text-gray-700">Balance</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Total Payment</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Remaining Balance</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {schedule.map((row) => (
-                            <tr key={row.idx} className="hover:bg-gray-50">
-                              <td className="px-3 py-1">{row.idx}</td>
-                              <td className="px-3 py-1">{new Date(row.date).toLocaleDateString()}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
-                              <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
-                            </tr>
-                          ))}
+                          {schedule.map((row, index) => {
+                            // Calculate start balance: for first row it's the loan amount, for others it's previous row's remaining balance
+                            const startBalance = index === 0 
+                              ? Number(form.loan_amount) 
+                              : (schedule[index - 1]?.balance || Number(form.loan_amount));
+                            const startDate = index === 0 
+                              ? new Date(form.start_date) 
+                              : new Date(schedule[index - 1]?.date || form.start_date);
+                            const endDate = new Date(row.date);
+                            const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+                            
+                            return (
+                              <tr key={row.idx} className="hover:bg-gray-50">
+                                <td className="px-3 py-1 text-center">{row.idx}</td>
+                                <td className="px-3 py-1">{startDate.toLocaleDateString('en-CA')}</td>
+                                <td className="px-3 py-1">{endDate.toLocaleDateString('en-CA')}</td>
+                                <td className="px-3 py-1 text-center">{days}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{startBalance.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

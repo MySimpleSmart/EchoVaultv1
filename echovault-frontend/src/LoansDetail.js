@@ -606,38 +606,50 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               <table className="min-w-full divide-y divide-gray-200 text-xs">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-2 py-2 text-left">ID</th>
-                    <th className="px-2 py-2 text-left">Start</th>
-                    <th className="px-2 py-2 text-left">End</th>
+                    <th className="px-2 py-2 text-center">#</th>
+                    <th className="px-2 py-2 text-left">Start Date</th>
+                    <th className="px-2 py-2 text-left">End Date</th>
                     <th className="px-2 py-2 text-center">Days</th>
                     <th className="px-2 py-2 text-right">Start Balance</th>
-                    <th className="px-2 py-2 text-right">Accrued Interest</th>
+                    <th className="px-2 py-2 text-right">Interest</th>
+                    <th className="px-2 py-2 text-right">Principal</th>
+                    <th className="px-2 py-2 text-right">Total Payment</th>
                     <th className="px-2 py-2 text-right">Paid Interest</th>
                     <th className="px-2 py-2 text-right">Paid Principal</th>
-                    <th className="px-2 py-2 text-right">Total Payment</th>
-                    <th className="px-2 py-2 text-right">Outstanding</th>
+                    <th className="px-2 py-2 text-right">Paid Total Payment</th>
                     <th className="px-2 py-2 text-right">Remain Balance</th>
                     <th className="px-2 py-2 text-center">Status</th>
                     <th className="px-3 py-2 text-left min-w-[250px] w-64">Note</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {schedule.map(r => {
+                  {schedule.map((r, index) => {
                     const statusClass = r.repayment_status === 'Paid' ? 'bg-green-100 text-green-800' 
                       : r.repayment_status === 'Partial' ? 'bg-yellow-100 text-yellow-800'
                       : 'bg-gray-100 text-gray-800';
+                    
+                    // Use values from database, with fallback calculation for backward compatibility
+                    const scheduledPrincipal = r.scheduled_principal !== undefined 
+                      ? (r.scheduled_principal || 0)
+                      : ((r.start_balance || 0) - (r.remain_balance || 0));
+                    
+                    const scheduledTotalPayment = r.scheduled_total_payment !== undefined
+                      ? (r.scheduled_total_payment || 0)
+                      : ((r.accrued_interest || 0) + scheduledPrincipal);
+                    
                     return (
                       <tr key={r.id} className="hover:bg-gray-50">
-                        <td className="px-2 py-1">{r.id}</td>
+                        <td className="px-2 py-1 text-center">{index + 1}</td>
                         <td className="px-2 py-1">{r.segment_start || '-'}</td>
                         <td className="px-2 py-1">{r.segment_end || '-'}</td>
                         <td className="px-2 py-1 text-center">{r.loan_days || 0}</td>
                         <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.start_balance || 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.accrued_interest || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{scheduledPrincipal.toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right font-medium">{getCurrencySymbol(currency)}{scheduledTotalPayment.toFixed(2)}</td>
                         <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.paid_interest || 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.paid_principles || 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-right font-medium">{getCurrencySymbol(currency)}{(r.total_payment || 0).toFixed(2)}</td>
-                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(r.outstanding_interest || 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-right font-medium">{getCurrencySymbol(currency)}{(r.remain_balance || 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-center">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${statusClass}`}>

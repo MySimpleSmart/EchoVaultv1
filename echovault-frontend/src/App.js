@@ -36,7 +36,7 @@ function MainApp() {
     if (savedToken) {
       setToken(savedToken);
     }
-    if (savedUser) {
+      if (savedUser) {
       try {
         setUser(JSON.parse(savedUser));
       } catch (e) {
@@ -46,9 +46,9 @@ function MainApp() {
 
     // Support legacy query params for backward compatibility
     const params = new URLSearchParams(location.search);
-    const view = params.get('view');
-    const borrowerId = params.get('borrowerId');
-    const loanId = params.get('loanId');
+      const view = params.get('view');
+      const borrowerId = params.get('borrowerId');
+      const loanId = params.get('loanId');
     
     if (view === 'borrower-detail' && borrowerId) {
       navigate(`/clients/${borrowerId}`, { replace: true });
@@ -136,7 +136,7 @@ function MainApp() {
       if (path === '/loans/new') return 'loans-create';
       if (path.match(/^\/loans\/\d+$/)) return 'loan-detail';
       return 'loans-active';
-    }
+      }
     if (path === '/loan-requests') return 'loan-requests';
     if (path === '/loan-requests/new') return 'loan-requests-create';
     if (path === '/loan-calculator') return 'loan-calculator';
@@ -178,8 +178,8 @@ function MainApp() {
             const route = routeMap[view];
             if (route) {
               navigate(route);
-              if (view === 'borrowers') {
-                refreshBorrowers();
+            if (view === 'borrowers') {
+              refreshBorrowers();
               }
             }
           }}
@@ -221,24 +221,24 @@ function MainApp() {
             
             {/* Loan Routes */}
             <Route path="/loans" element={
-              <div className="p-6">
-                <div className="mb-8">
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                    <div>
-                      <h1 className="text-2xl font-bold text-gray-900 mb-2">Loans</h1>
-                      <p className="text-gray-600">Manage and view loan applications and approvals</p>
-                    </div>
-                    <button
-                      onClick={() => navigate('/loans/new')}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                      <span>Create New Loan</span>
-                    </button>
+            <div className="p-6">
+              <div className="mb-8">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900 mb-2">Loans</h1>
+                    <p className="text-gray-600">Manage and view loan applications and approvals</p>
                   </div>
+                  <button
+                      onClick={() => navigate('/loans/new')}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <span>Create New Loan</span>
+                  </button>
                 </div>
+              </div>
                 <LoansActive 
                   token={token} 
                   setCurrentView={(v) => {
@@ -284,7 +284,7 @@ function MainApp() {
                 'loans-active': '/loans',
                 'loan-detail': (id) => `/loans/${id}`
               };
-              if (typeof v === 'object' && v.view === 'loan-detail') {
+                if (typeof v === 'object' && v.view === 'loan-detail') {
                 navigate(`/loans/${v.loanId}`);
               }
             }} /></div>} />
@@ -381,7 +381,7 @@ function ClientEditWrapper({ token, navigate }) {
         <p className="text-sm text-red-600">Failed to load borrower data.</p>
       </div>
     );
-  }
+                }
   
   return (
     <div className="p-6">
@@ -392,7 +392,7 @@ function ClientEditWrapper({ token, navigate }) {
         onCancel={() => navigate(`/clients/${id}`)}
         token={token}
       />
-    </div>
+            </div>
   );
 }
 
@@ -400,110 +400,110 @@ function LoanDetailWrapper({ token, navigate, setEditingLoan }) {
   const { id } = useParams();
   
   return (
-    <div className="p-6">
-      <LoansDetail 
-        token={token} 
+            <div className="p-6">
+              <LoansDetail 
+                token={token} 
         loanId={id} 
         onBack={() => navigate('/loans')} 
         onOpenBorrower={(borrowerId) => {
           window.open(`${window.location.origin}/clients/${borrowerId}`, '_blank', 'noopener');
-        }}
-        onEditLoan={(loan) => {
-          setEditingLoan(loan);
+                }}
+                onEditLoan={(loan) => {
+                  setEditingLoan(loan);
           navigate('/loans/new');
-        }}
-      />
-    </div>
+                }}
+              />
+            </div>
   );
 }
 
 function LoanRequestsPage({ navigate }) {
   return (
-    <div className="p-6">
-      <div className="mb-8">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Loan Requests</h1>
-            <p className="text-gray-600">Review and process incoming loan requests</p>
-          </div>
-          <button
+            <div className="p-6">
+              <div className="mb-8">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900 mb-2">Loan Requests</h1>
+                    <p className="text-gray-600">Review and process incoming loan requests</p>
+                  </div>
+                  <button
             onClick={() => navigate('/loan-requests/new')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            <span>Create Loan Request</span>
-          </button>
-        </div>
-      </div>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-        <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-        </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">No loan requests</h3>
-        <p className="text-gray-500 mb-8 max-w-md mx-auto">New loan requests submitted by borrowers will be listed here for your review.</p>
-        <button
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 self-start sm:self-center"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <span>Create Loan Request</span>
+                  </button>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">No loan requests</h3>
+                <p className="text-gray-500 mb-8 max-w-md mx-auto">New loan requests submitted by borrowers will be listed here for your review.</p>
+                <button
           onClick={() => navigate('/loan-requests/new')}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 mx-auto"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          <span>Create Loan Request</span>
-        </button>
-      </div>
-    </div>
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center space-x-2 mx-auto"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  <span>Create Loan Request</span>
+                </button>
+              </div>
+            </div>
   );
 }
 
 function LoanRequestCreatePage() {
   return (
-    <div className="p-6">
-      <div className="mb-8">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Create Loan Request</h1>
-            <p className="text-gray-600">Start a new loan request for a borrower</p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-        <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-8 4h10M7 8h10" />
-          </svg>
-        </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">Form coming soon</h3>
-        <p className="text-gray-500 max-w-md mx-auto">We will add the loan request form here with borrower selection and product details.</p>
-      </div>
-    </div>
+            <div className="p-6">
+              <div className="mb-8">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900 mb-2">Create Loan Request</h1>
+                    <p className="text-gray-600">Start a new loan request for a borrower</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-8 4h10M7 8h10" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">Form coming soon</h3>
+                <p className="text-gray-500 max-w-md mx-auto">We will add the loan request form here with borrower selection and product details.</p>
+              </div>
+            </div>
   );
 }
 
 function LoanCalculatorPage() {
   return (
-    <div className="p-6">
-      <div className="mb-8">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Loan Calculator</h1>
-            <p className="text-gray-600">Estimate repayments and terms</p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-        <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h10M7 11h10M9 15h6M9 19h6" />
-          </svg>
-        </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">Calculator coming soon</h3>
-        <p className="text-gray-500 max-w-md mx-auto">We will add repayment and term estimation here with inputs and instant results.</p>
-      </div>
-    </div>
+            <div className="p-6">
+              <div className="mb-8">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900 mb-2">Loan Calculator</h1>
+                    <p className="text-gray-600">Estimate repayments and terms</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h10M7 11h10M9 15h6M9 19h6" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">Calculator coming soon</h3>
+                <p className="text-gray-500 max-w-md mx-auto">We will add repayment and term estimation here with inputs and instant results.</p>
+              </div>
+            </div>
   );
 }
 

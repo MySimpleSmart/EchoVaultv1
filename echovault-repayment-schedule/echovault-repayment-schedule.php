@@ -27,6 +27,8 @@ register_activation_hook(__FILE__, static function () {
         loan_days int(11) NOT NULL DEFAULT 0,
         start_balance decimal(15,2) NOT NULL DEFAULT 0.00,
         accrued_interest decimal(15,2) NOT NULL DEFAULT 0.00,
+        scheduled_principal decimal(15,2) NOT NULL DEFAULT 0.00,
+        scheduled_total_payment decimal(15,2) NOT NULL DEFAULT 0.00,
         paid_interest decimal(15,2) NOT NULL DEFAULT 0.00,
         paid_principles decimal(15,2) NOT NULL DEFAULT 0.00,
         total_payment decimal(15,2) NOT NULL DEFAULT 0.00,
@@ -90,6 +92,8 @@ final class EchoVault_Loan_Schedule_API {
         // Quick existence check
         $exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name));
         if ($exists === $table_name) {
+            // Table exists, check if migration is needed
+            $this->migrate_table_columns($table_name);
             return;
         }
 
@@ -102,6 +106,8 @@ final class EchoVault_Loan_Schedule_API {
             loan_days int(11) NOT NULL DEFAULT 0,
             start_balance decimal(15,2) NOT NULL DEFAULT 0.00,
             accrued_interest decimal(15,2) NOT NULL DEFAULT 0.00,
+            scheduled_principal decimal(15,2) NOT NULL DEFAULT 0.00,
+            scheduled_total_payment decimal(15,2) NOT NULL DEFAULT 0.00,
             paid_interest decimal(15,2) NOT NULL DEFAULT 0.00,
             paid_principles decimal(15,2) NOT NULL DEFAULT 0.00,
             total_payment decimal(15,2) NOT NULL DEFAULT 0.00,
@@ -119,6 +125,35 @@ final class EchoVault_Loan_Schedule_API {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
+    }
+
+    /**
+     * Migrate table columns - add new columns if they don't exist
+     */
+    private function migrate_table_columns(string $table_name): void {
+        global $wpdb;
+        
+        // Check if scheduled_principal column exists
+        $column_exists = $wpdb->get_results($wpdb->prepare(
+            "SHOW COLUMNS FROM $table_name LIKE %s",
+            'scheduled_principal'
+        ));
+        
+        if (empty($column_exists)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN scheduled_principal decimal(15,2) NOT NULL DEFAULT 0.00 AFTER accrued_interest");
+            error_log("EchoVault: Added scheduled_principal column to $table_name");
+        }
+        
+        // Check if scheduled_total_payment column exists
+        $column_exists = $wpdb->get_results($wpdb->prepare(
+            "SHOW COLUMNS FROM $table_name LIKE %s",
+            'scheduled_total_payment'
+        ));
+        
+        if (empty($column_exists)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN scheduled_total_payment decimal(15,2) NOT NULL DEFAULT 0.00 AFTER scheduled_principal");
+            error_log("EchoVault: Added scheduled_total_payment column to $table_name");
+        }
     }
 
     /**
@@ -279,34 +314,47 @@ final class EchoVault_Loan_Schedule_API {
                     <table class="wp-list-table widefat fixed striped">
                         <thead>
                             <tr>
-                                <th>ID</th>
+                                <th>#</th>
                                 <th>Start Date</th>
                                 <th>End Date</th>
                                 <th>Days</th>
                                 <th>Start Balance</th>
-                                <th>Accrued Interest</th>
+                                <th>Interest</th>
+                                <th>Principal</th>
+                                <th>Total Payment</th>
                                 <th>Paid Interest</th>
                                 <th>Paid Principal</th>
-                                <th>Total Payment</th>
-                                <th>Outstanding Interest</th>
+                                <th>Paid Total Payment</th>
                                 <th>Remaining Balance</th>
                                 <th>Status</th>
                                 <th>Note</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($schedules as $schedule): ?>
+                            <?php 
+                            $index = 0;
+                            foreach ($schedules as $schedule): 
+                                $index++;
+                                // Calculate scheduled values if not in database (backward compatibility)
+                                $scheduled_principal = isset($schedule['scheduled_principal']) && $schedule['scheduled_principal'] > 0
+                                    ? (float)$schedule['scheduled_principal']
+                                    : ((float)$schedule['start_balance'] - (float)$schedule['remain_balance']);
+                                $scheduled_total_payment = isset($schedule['scheduled_total_payment']) && $schedule['scheduled_total_payment'] > 0
+                                    ? (float)$schedule['scheduled_total_payment']
+                                    : ((float)$schedule['accrued_interest'] + $scheduled_principal);
+                            ?>
                                 <tr>
-                                    <td><?php echo esc_html($schedule['id']); ?></td>
+                                    <td><?php echo esc_html($index); ?></td>
                                     <td><?php echo esc_html($schedule['segment_start']); ?></td>
                                     <td><?php echo esc_html($schedule['segment_end']); ?></td>
                                     <td><?php echo esc_html($schedule['loan_days']); ?></td>
                                     <td><?php echo number_format($schedule['start_balance'], 2); ?></td>
                                     <td><?php echo number_format($schedule['accrued_interest'], 2); ?></td>
+                                    <td><?php echo number_format($scheduled_principal, 2); ?></td>
+                                    <td><?php echo number_format($scheduled_total_payment, 2); ?></td>
                                     <td><?php echo number_format($schedule['paid_interest'], 2); ?></td>
                                     <td><?php echo number_format($schedule['paid_principles'], 2); ?></td>
                                     <td><?php echo number_format($schedule['total_payment'], 2); ?></td>
-                                    <td><?php echo number_format($schedule['outstanding_interest'], 2); ?></td>
                                     <td><?php echo number_format($schedule['remain_balance'], 2); ?></td>
                                     <td><?php echo esc_html($schedule['repayment_status']); ?></td>
                                     <td><?php echo esc_html($schedule['repayment_note']); ?></td>
@@ -824,15 +872,48 @@ final class EchoVault_Loan_Schedule_API {
             $rows[] = $this->row($periods - 1, $start, $payload['repayment_frequency'], $interest_only + $balance, $balance, $interest_only, 0);
         }
         // Equal Principal Payment (Default)
-        // Fixed principal amount per period, interest calculated on remaining balance
+        // Fixed principal amount per period, interest calculated daily on remaining balance
+        // Interest rate is monthly (e.g., 4% per month), calculated using: Balance × Monthly Rate × (Days / 30)
         else {
             $principal_per_period = $principal / $periods;
+            $monthly_rate = $payload['loan_interest'] / 100; // Monthly rate as decimal (e.g., 0.04 for 4%)
+            
+            $period_start = clone $start;
+            
             for ($i = 0; $i < $periods; $i++) {
-                $interest = $balance * $rate;
+                // Calculate payment date for this period
+                $period_end = clone $period_start;
+                switch ($payload['repayment_frequency']) {
+                    case 'Weekly':
+                        $period_end->modify('+7 days');
+                        break;
+                    case 'Fortnightly':
+                        $period_end->modify('+14 days');
+                        break;
+                    default: // Monthly
+                        $period_end->modify('+1 month');
+                        break;
+                }
+                
+                // Calculate actual number of days in this period
+                $days_in_period = $period_start->diff($period_end)->days;
+                if ($days_in_period <= 0) {
+                    $days_in_period = 1; // Fallback to prevent division by zero
+                }
+                
+                // Calculate interest using the formula: Opening Balance × Monthly Rate × (Days / 30)
+                // This uses a standard 30-day month as the base, then adjusts for actual days in period
+                // Example: $10,000 × 0.04 × (31/30) = $413.33
+                // Example: $9,166.67 × 0.04 × (30/30) = $366.67
+                $interest = $balance * $monthly_rate * ($days_in_period / 30);
+                
                 $payment  = $principal_per_period + $interest;
                 $balance  = max(0, $balance - $principal_per_period);
 
-                $rows[] = $this->row($i, $start, $payload['repayment_frequency'], $payment, $principal_per_period, $interest, $balance);
+                $rows[] = $this->row_with_date($i, $period_start, $period_end, $payment, $principal_per_period, $interest, $balance);
+                
+                // Move to next period start
+                $period_start = clone $period_end;
             }
         }
 
@@ -871,6 +952,33 @@ final class EchoVault_Loan_Schedule_API {
             'principal' => round($principal, 2),
             'interest'  => round($interest, 2),
             'balance'   => round($balance, 2),
+        ];
+    }
+
+    /**
+     * Create a single schedule row with explicit start and end dates (for daily interest calculation).
+     * 
+     * @param int $index Zero-based period index
+     * @param DateTime $period_start Start date of this payment period
+     * @param DateTime $period_end End date of this payment period (payment due date)
+     * @param float $payment Total payment amount for this period
+     * @param float $principal Principal portion of payment
+     * @param float $interest Interest portion of payment
+     * @param float $balance Remaining balance after this payment
+     * @return array Schedule row with idx, date (ISO 8601), payment, principal, interest, balance, period_start, period_end, days
+     */
+    private function row_with_date(int $index, DateTime $period_start, DateTime $period_end, float $payment, float $principal, float $interest, float $balance): array {
+        $days = $period_start->diff($period_end)->days;
+        return [
+            'idx'           => $index + 1,
+            'date'          => $period_end->format('c'), // ISO 8601 format (payment due date)
+            'payment'       => round($payment, 2),
+            'principal'     => round($principal, 2),
+            'interest'      => round($interest, 2),
+            'balance'       => round($balance, 2),
+            'period_start'  => $period_start->format('Y-m-d'), // Store start date for exact matching
+            'period_end'    => $period_end->format('Y-m-d'), // Store end date for exact matching
+            'days'          => $days, // Store days for exact matching
         ];
     }
 
@@ -916,26 +1024,35 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Calculate the interest rate per payment period from annual percentage rate.
+     * Calculate the interest rate per payment period from monthly interest rate.
      * 
-     * Converts annual interest rate to periodic rate:
-     * - Monthly: annual rate / 12
-     * - Fortnightly: annual rate / 26
-     * - Weekly: annual rate / 52
+     * IMPORTANT: The loan_interest field represents a MONTHLY interest rate (not annual).
+     * For example, 4% means 4% per month.
      * 
-     * @param float $annual_percent Annual interest rate as percentage (e.g., 5.5 for 5.5%)
+     * For Equal Principal Payment method, interest is calculated daily:
+     * - Daily rate = monthly_rate / days_in_period
+     * - Interest = balance * daily_rate * days_in_period
+     * 
+     * For other methods (Equal Total, Interest-Only), converts monthly rate to periodic rate:
+     * - Monthly: monthly rate (as-is)
+     * - Fortnightly: monthly rate * (12/26) = monthly rate * 0.4615
+     * - Weekly: monthly rate * (12/52) = monthly rate * 0.2308
+     * 
+     * @param float $monthly_percent Monthly interest rate as percentage (e.g., 4.0 for 4% per month)
      * @param string $frequency Payment frequency
-     * @return float Interest rate per period (as decimal, e.g., 0.00458 for 0.458%)
+     * @return float Interest rate per period (as decimal, e.g., 0.04 for 4%)
      */
-    private function rate_per_period(float $annual_percent, string $frequency): float {
-        $annual = $annual_percent / 100; // Convert percentage to decimal
+    private function rate_per_period(float $monthly_percent, string $frequency): float {
+        $monthly = $monthly_percent / 100; // Convert percentage to decimal
         switch ($frequency) {
             case 'Weekly':
-                return $annual / 52;
+                // Convert monthly rate to weekly: monthly * (12 months / 52 weeks)
+                return $monthly * (12 / 52);
             case 'Fortnightly':
-                return $annual / 26;
+                // Convert monthly rate to fortnightly: monthly * (12 months / 26 fortnights)
+                return $monthly * (12 / 26);
             default: // Monthly
-                return $annual / 12;
+                return $monthly; // Monthly rate as-is
         }
     }
 
@@ -985,10 +1102,28 @@ final class EchoVault_Loan_Schedule_API {
                 if (is_array($repayment_method)) $repayment_method = $repayment_method[0];
                 if (is_array($repayment_frequency)) $repayment_frequency = $repayment_frequency[0];
                 
+                $loan_interest_val = floatval($loan_interest ?: 0);
+                
+                // If interest rate is 0 or missing, try to get it from the loan product
+                if ($loan_interest_val <= 0) {
+                    $loan_product_id = $request->get_param('loan_product_id') ?? $request->get_param('meta[loan_product_id]') ?? $_POST['loan_product_id'] ?? get_post_meta($loan_id, 'loan_product_id', true);
+                    if (!empty($loan_product_id)) {
+                        if (is_array($loan_product_id)) $loan_product_id = $loan_product_id[0];
+                        $product_interest = get_post_meta($loan_product_id, 'interest_rate', true);
+                        if (is_array($product_interest)) {
+                            $product_interest = isset($product_interest[0]) ? $product_interest[0] : '';
+                        }
+                        if (!empty($product_interest) && floatval($product_interest) > 0) {
+                            $loan_interest_val = floatval($product_interest);
+                            error_log("EchoVault: Using interest rate from loan product in force_generate: $loan_interest_val");
+                        }
+                    }
+                }
+                
                 $loan_data = [
                     'loan_amount' => floatval($loan_amount),
                     'loan_term' => intval($loan_term),
-                    'loan_interest' => floatval($loan_interest ?: 0),
+                    'loan_interest' => $loan_interest_val,
                     'repayment_method' => trim((string)($repayment_method ?: 'Equal Principal')),
                     'repayment_frequency' => trim((string)($repayment_frequency ?: 'Monthly')),
                     'start_date' => trim((string)$start_date),
@@ -1010,15 +1145,33 @@ final class EchoVault_Loan_Schedule_API {
                 $repayment_method = $_POST['repayment_method'] ?? 'Equal Principal';
                 $repayment_frequency = $_POST['repayment_frequency'] ?? 'Monthly';
                 
+                $loan_interest_val = floatval($loan_interest ?: 0);
+                
+                // If interest rate is 0 or missing, try to get it from the loan product
+                if ($loan_interest_val <= 0) {
+                    $loan_product_id = $_POST['loan_product_id'] ?? $_POST['meta[loan_product_id]'] ?? get_post_meta($loan_id, 'loan_product_id', true);
+                    if (!empty($loan_product_id)) {
+                        if (is_array($loan_product_id)) $loan_product_id = $loan_product_id[0];
+                        $product_interest = get_post_meta($loan_product_id, 'interest_rate', true);
+                        if (is_array($product_interest)) {
+                            $product_interest = isset($product_interest[0]) ? $product_interest[0] : '';
+                        }
+                        if (!empty($product_interest) && floatval($product_interest) > 0) {
+                            $loan_interest_val = floatval($product_interest);
+                            error_log("EchoVault: Using interest rate from loan product in \$_POST: $loan_interest_val");
+                        }
+                    }
+                }
+                
                 $loan_data = [
                     'loan_amount' => floatval($loan_amount),
                     'loan_term' => intval($loan_term),
-                    'loan_interest' => floatval($loan_interest ?: 0),
+                    'loan_interest' => $loan_interest_val,
                     'repayment_method' => trim((string)($repayment_method ?: 'Equal Principal')),
                     'repayment_frequency' => trim((string)($repayment_frequency ?: 'Monthly')),
                     'start_date' => trim((string)$start_date),
                 ];
-                error_log("EchoVault: Got data from \$_POST: amount={$loan_data['loan_amount']}, term={$loan_data['loan_term']}, date={$loan_data['start_date']}");
+                error_log("EchoVault: Got data from \$_POST: amount={$loan_data['loan_amount']}, term={$loan_data['loan_term']}, interest={$loan_data['loan_interest']}, date={$loan_data['start_date']}");
             }
         }
         
@@ -1088,10 +1241,28 @@ final class EchoVault_Loan_Schedule_API {
             if (is_array($repayment_method)) $repayment_method = $repayment_method[0];
             if (is_array($repayment_frequency)) $repayment_frequency = $repayment_frequency[0];
             
+            $loan_interest_val = floatval($loan_interest ?: 0);
+            
+            // If interest rate is 0 or missing, try to get it from the loan product
+            if ($loan_interest_val <= 0) {
+                $loan_product_id = get_post_meta($post_id, 'loan_product_id', true);
+                if (is_array($loan_product_id)) $loan_product_id = $loan_product_id[0];
+                if (!empty($loan_product_id)) {
+                    $product_interest = get_post_meta($loan_product_id, 'interest_rate', true);
+                    if (is_array($product_interest)) {
+                        $product_interest = isset($product_interest[0]) ? $product_interest[0] : '';
+                    }
+                    if (!empty($product_interest) && floatval($product_interest) > 0) {
+                        $loan_interest_val = floatval($product_interest);
+                        error_log("EchoVault: Using interest rate from loan product in force_generate_on_meta_add: $loan_interest_val");
+                    }
+                }
+            }
+            
             $loan_data = [
                 'loan_amount' => $loan_amount,
                 'loan_term' => $loan_term,
-                'loan_interest' => floatval($loan_interest ?: 0),
+                'loan_interest' => $loan_interest_val,
                 'repayment_method' => trim((string)($repayment_method ?: 'Equal Principal')),
                 'repayment_frequency' => trim((string)($repayment_frequency ?: 'Monthly')),
                 'start_date' => $start_date,
@@ -1525,7 +1696,22 @@ final class EchoVault_Loan_Schedule_API {
         $repayment_frequency = trim($repayment_frequency_str);
         $start_date = trim($start_date);
         
-        error_log("EchoVault: Extracted values - amount: $loan_amount, term: $loan_term, date: $start_date");
+        // If interest rate is 0 or missing, try to get it from the loan product
+        if ($loan_interest <= 0) {
+            $loan_product_id = $get_meta_value('loan_product_id', '');
+            if (!empty($loan_product_id)) {
+                $product_interest = get_post_meta($loan_product_id, 'interest_rate', true);
+                if (is_array($product_interest)) {
+                    $product_interest = isset($product_interest[0]) ? $product_interest[0] : '';
+                }
+                if (!empty($product_interest) && floatval($product_interest) > 0) {
+                    $loan_interest = floatval($product_interest);
+                    error_log("EchoVault: Using interest rate from loan product: $loan_interest");
+                }
+            }
+        }
+        
+        error_log("EchoVault: Extracted values - amount: $loan_amount, term: $loan_term, interest: $loan_interest, date: $start_date");
         
         // Validate required fields
         if ($loan_amount <= 0 || $loan_term <= 0 || empty($start_date)) {
@@ -2175,28 +2361,36 @@ final class EchoVault_Loan_Schedule_API {
         error_log("EchoVault: Generated " . count($theoretical_schedule) . " theoretical schedule rows for loan $loan_id");
 
         $start_date = new DateTime($loan_data['start_date']);
-        $annual_rate = $loan_data['loan_interest'] / 100;
+        $monthly_rate = $loan_data['loan_interest'] / 100; // Monthly rate as decimal (e.g., 0.04 for 4% per month)
         $frequency = $loan_data['repayment_frequency'];
         $count = 0;
         $current_balance = $loan_data['loan_amount'];
 
         foreach ($theoretical_schedule as $index => $row) {
-            $segment_start = $index === 0 
-                ? clone $start_date 
-                : $this->calculate_segment_start($start_date, $index, $frequency);
-            
-            $segment_end = $this->calculate_segment_end($segment_start, $frequency);
-            $loan_days = $segment_start->diff($segment_end)->days;
+            // Use the exact dates from build_schedule() to ensure perfect match
+            // This ensures the days calculation matches exactly what was used in the interest calculation
+            if (isset($row['period_start']) && isset($row['period_end'])) {
+                $segment_start = new DateTime($row['period_start']);
+                $segment_end = new DateTime($row['period_end']);
+                $loan_days = isset($row['days']) ? intval($row['days']) : $segment_start->diff($segment_end)->days;
+            } else {
+                // Fallback to recalculating (shouldn't happen, but safety net)
+                $segment_start = $index === 0 
+                    ? clone $start_date 
+                    : $this->calculate_segment_start($start_date, $index, $frequency);
+                $segment_end = $this->calculate_segment_end($segment_start, $frequency);
+                $loan_days = $segment_start->diff($segment_end)->days;
+            }
 
-            // Calculate accrued interest for this segment
-            $accrued_interest = $this->calculate_accrued_interest(
-                $current_balance,
-                $annual_rate,
-                $loan_days
-            );
+            // Use pre-calculated values from the schedule to ensure exact match
+            // These values are calculated in build_schedule() using the correct formula
+            $accrued_interest = floatval($row['interest']); // Interest amount for this period
+            $principal_payment = floatval($row['principal']); // Principal payment amount for this period
+            $remaining_balance = floatval($row['balance']); // Balance after principal payment
+            $scheduled_total_payment = $accrued_interest + $principal_payment; // Total scheduled payment
 
             // Insert directly into custom table
-            $this->ensure_table_exists();
+            $this->ensure_table_exists(); // This will also run migration if needed
             global $wpdb;
             $table_name = $this->get_table_name();
             
@@ -2208,16 +2402,18 @@ final class EchoVault_Loan_Schedule_API {
                     'segment_end' => $segment_end->format('Y-m-d'),
                     'loan_days' => $loan_days,
                     'start_balance' => round($current_balance, 2),
-                    'accrued_interest' => round($accrued_interest, 2),
-                    'paid_interest' => 0,
-                    'paid_principles' => 0,
-                    'total_payment' => 0,
-                    'outstanding_interest' => round($accrued_interest, 2),
-                    'remain_balance' => round($current_balance, 2),
+                    'accrued_interest' => round($accrued_interest, 2), // Pre-calculated interest for this period
+                    'scheduled_principal' => round($principal_payment, 2), // Scheduled principal payment
+                    'scheduled_total_payment' => round($scheduled_total_payment, 2), // Scheduled total payment (Interest + Principal)
+                    'paid_interest' => 0, // No payment made yet
+                    'paid_principles' => 0, // No payment made yet
+                    'total_payment' => 0, // No payment made yet (this is the paid total)
+                    'outstanding_interest' => 0.00, // Set to 0.00 for new loans (only calculated when overdue)
+                    'remain_balance' => round($remaining_balance, 2), // Balance after principal payment
                     'repayment_status' => 'Pending',
                     'repayment_note' => '',
                 ],
-                ['%d', '%s', '%s', '%d', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%s', '%s']
+                ['%d', '%s', '%s', '%d', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%s', '%s']
             );
             
             if ($result === false) {
@@ -2226,11 +2422,11 @@ final class EchoVault_Loan_Schedule_API {
             }
             
             $segment_id = $wpdb->insert_id;
-            error_log("EchoVault: Successfully inserted segment $index (ID: $segment_id) for loan $loan_id into custom table");
+            error_log("EchoVault: Successfully inserted segment $index (ID: $segment_id) for loan $loan_id - Start: $current_balance, Interest: $accrued_interest, Principal: $principal_payment, Remaining: $remaining_balance");
                 $count++;
 
             // Update balance for next segment
-            $current_balance = $row['balance'];
+            $current_balance = $remaining_balance;
         }
 
         error_log("EchoVault: create_repayment_schedule completed for loan $loan_id - created $count segments");
@@ -2274,10 +2470,16 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Calculate accrued interest
+     * Calculate accrued interest using monthly rate
+     * Formula: Balance × Monthly Rate × (Days / 30)
+     * 
+     * @param float $balance Opening balance for the period
+     * @param float $monthly_rate Monthly interest rate as decimal (e.g., 0.04 for 4% per month)
+     * @param int $days Number of days in the period
+     * @return float Accrued interest amount
      */
-    private function calculate_accrued_interest(float $balance, float $annual_rate, int $days): float {
-        return $balance * $annual_rate * ($days / 365);
+    private function calculate_accrued_interest(float $balance, float $monthly_rate, int $days): float {
+        return $balance * $monthly_rate * ($days / 30);
     }
 
     /**
@@ -2368,9 +2570,9 @@ final class EchoVault_Loan_Schedule_API {
         $new_balance = floatval($paid_segment['remain_balance']);
         $segment_end = $paid_segment['segment_end'];
 
-        // Get loan interest rate from loan meta
+        // Get loan interest rate from loan meta (monthly rate, not annual)
         $loan_interest = floatval(get_post_meta($loan_id, 'loan_interest', true) ?: 0);
-        $annual_rate = $loan_interest / 100;
+        $monthly_rate = $loan_interest / 100; // Monthly rate as decimal (e.g., 0.04 for 4% per month)
 
         // Get all future segments (segment_start > paid_segment_end)
         $future_segments = $wpdb->get_results($wpdb->prepare(
@@ -2398,8 +2600,8 @@ final class EchoVault_Loan_Schedule_API {
             $segment_end = new DateTime($segment_end_str);
             $loan_days = $segment_start->diff($segment_end)->days;
 
-            // Recalculate accrued interest with new balance
-            $accrued_interest = $this->calculate_accrued_interest($current_balance, $annual_rate, $loan_days);
+            // Recalculate accrued interest with new balance using: Balance × Monthly Rate × (Days / 30)
+            $accrued_interest = $this->calculate_accrued_interest($current_balance, $monthly_rate, $loan_days);
 
             // Recalculate outstanding interest
             $paid_interest = floatval($segment['paid_interest'] ?: 0);
@@ -2448,6 +2650,16 @@ final class EchoVault_Loan_Schedule_API {
         
         $schedule = [];
         foreach ($rows as $row) {
+            // Calculate scheduled_principal if not in database (for backward compatibility)
+            $scheduled_principal = isset($row['scheduled_principal']) && $row['scheduled_principal'] > 0
+                ? (float)$row['scheduled_principal']
+                : ((float)$row['start_balance'] - (float)$row['remain_balance']);
+            
+            // Calculate scheduled_total_payment if not in database (for backward compatibility)
+            $scheduled_total_payment = isset($row['scheduled_total_payment']) && $row['scheduled_total_payment'] > 0
+                ? (float)$row['scheduled_total_payment']
+                : ((float)$row['accrued_interest'] + $scheduled_principal);
+            
             $schedule[] = [
                 'id' => (int)$row['id'],
                 'related_loan' => (int)$row['related_loan'],
@@ -2456,6 +2668,8 @@ final class EchoVault_Loan_Schedule_API {
                 'loan_days' => (int)$row['loan_days'],
                 'start_balance' => (float)$row['start_balance'],
                 'accrued_interest' => (float)$row['accrued_interest'],
+                'scheduled_principal' => $scheduled_principal,
+                'scheduled_total_payment' => $scheduled_total_payment,
                 'paid_interest' => (float)$row['paid_interest'],
                 'paid_principles' => (float)$row['paid_principles'],
                 'total_payment' => (float)$row['total_payment'],
