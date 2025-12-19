@@ -32,6 +32,7 @@ const LoansActive = ({ token, setCurrentView }) => {
   const [products, setProducts] = useState([]);
   const [systemAccounts, setSystemAccounts] = useState([]);
   const [borrowers, setBorrowers] = useState([]);
+  const [loanRepaymentStatuses, setLoanRepaymentStatuses] = useState({}); // Store repayment status for each loan
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [productFilter, setProductFilter] = useState('all');
@@ -72,6 +73,71 @@ const LoansActive = ({ token, setCurrentView }) => {
         setProducts(productsJson || []);
         setSystemAccounts(accountsJson || []);
         setBorrowers(borrowersJson || []);
+        
+        // Fetch repayment schedules for all loans to determine status
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const statusMap = {};
+        
+        for (const loan of (loansJson || [])) {
+          try {
+            const scheduleResp = await fetch(
+              `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${loan.id}`,
+              { headers: { Authorization: `Bearer ${token}` }, mode: 'cors' }
+            );
+            if (scheduleResp.ok) {
+              const scheduleJson = await scheduleResp.json();
+              if (scheduleJson.success && scheduleJson.schedule && Array.isArray(scheduleJson.schedule)) {
+                const schedule = scheduleJson.schedule;
+                
+                // Calculate overall repayment status
+                let overallStatus = 'Pending';
+                let hasOverdue = false;
+                let paidCount = 0;
+                let partialCount = 0;
+                
+                schedule.forEach(r => {
+                  const status = (r.repayment_status || '').toLowerCase();
+                  if (status === 'paid') {
+                    paidCount++;
+                  } else if (status === 'partial') {
+                    partialCount++;
+                  } else {
+                    // Check if overdue
+                    const paymentDateStr = r.segment_end || r.repayment_date || r.end_date;
+                    if (paymentDateStr) {
+                      try {
+                        const paymentDate = new Date(paymentDateStr);
+                        paymentDate.setHours(0, 0, 0, 0);
+                        if (paymentDate < today && status !== 'paid') {
+                          hasOverdue = true;
+                        }
+                      } catch (e) {
+                        // Ignore date parsing errors
+                      }
+                    }
+                  }
+                });
+                
+                // Determine overall status
+                if (paidCount === schedule.length) {
+                  overallStatus = 'Paid';
+                } else if (hasOverdue) {
+                  overallStatus = 'Overdue';
+                } else if (partialCount > 0 || paidCount > 0) {
+                  overallStatus = 'Partial';
+                }
+                
+                statusMap[loan.id] = overallStatus;
+              }
+            }
+          } catch (e) {
+            console.error(`Error fetching schedule for loan ${loan.id}:`, e);
+            statusMap[loan.id] = 'Pending';
+          }
+        }
+        
+        setLoanRepaymentStatuses(statusMap);
       } catch (e) {
         setError(e.message || 'Failed to load loans');
       } finally {
@@ -295,6 +361,7 @@ const LoansActive = ({ token, setCurrentView }) => {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Frequency</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repayment Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
             </tr>
           </thead>
@@ -380,6 +447,21 @@ const LoansActive = ({ token, setCurrentView }) => {
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClass}`}>
                       {statusLabel}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    {(() => {
+                      const repaymentStatus = loanRepaymentStatuses[l.id] || 'Pending';
+                      const repaymentStatusClass = 
+                        repaymentStatus === 'Paid' ? 'bg-green-100 text-green-800' :
+                        repaymentStatus === 'Overdue' ? 'bg-red-100 text-red-800' :
+                        repaymentStatus === 'Partial' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-gray-100 text-gray-800';
+                      return (
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${repaymentStatusClass}`}>
+                          {repaymentStatus}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button

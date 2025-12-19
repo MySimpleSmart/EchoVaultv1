@@ -179,6 +179,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
   const [paymentForm, setPaymentForm] = useState({
     paid_interest: 0,
     paid_principles: 0,
+    total_payment: 0,
     payment_date: new Date().toISOString().split('T')[0],
     repayment_note: ''
   });
@@ -246,8 +247,9 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
         body: JSON.stringify({
           loan_id: parseInt(loanId),
           segment_id: parseInt(selectedSegment.id),
-          paid_interest: parseFloat(paymentForm.paid_interest) || 0,
-          paid_principles: parseFloat(paymentForm.paid_principles) || 0,
+          paid_interest: 0, // Read-only, backend will calculate from total_payment
+          paid_principles: 0, // Read-only, backend will calculate from total_payment
+          total_payment: parseFloat(paymentForm.total_payment) || 0,
           payment_date: paymentForm.payment_date,
           repayment_note: paymentForm.repayment_note || ''
         }),
@@ -280,6 +282,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
           setPaymentForm({
             paid_interest: 0,
             paid_principles: 0,
+            total_payment: 0,
             payment_date: new Date().toISOString().split('T')[0],
             repayment_note: ''
           });
@@ -300,12 +303,13 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
 
   const openPaymentModal = (segment) => {
     setSelectedSegment(segment);
-    setPaymentForm({
-      paid_interest: segment.paid_interest || 0,
-      paid_principles: segment.paid_principles || 0,
-      payment_date: new Date().toISOString().split('T')[0],
-      repayment_note: segment.repayment_note || ''
-    });
+      setPaymentForm({
+        paid_interest: segment.paid_interest || 0,
+        paid_principles: segment.paid_principles || 0,
+        total_payment: segment.total_payment || 0,
+        payment_date: new Date().toISOString().split('T')[0],
+        repayment_note: segment.repayment_note || ''
+      });
     setShowPaymentModal(true);
   };
 
@@ -456,8 +460,66 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               <div className="text-gray-500">Amount</div><div className="text-gray-900 font-medium">{getCurrencySymbol(currency)}{loan.loan_amount || loan.meta?.loan_amount}</div>
               <div className="text-gray-500">Method</div><div className="text-gray-900 font-medium">{loan.repayment_method || loan.meta?.repayment_method}</div>
               <div className="text-gray-500">Frequency</div><div className="text-gray-900 font-medium">{loan.repayment_frequency || loan.meta?.repayment_frequency}</div>
+              <div className="text-gray-500">Type</div><div className="text-gray-900 font-medium">{loan.repayment_type || loan.meta?.repayment_type || '-'}</div>
               <div className="text-gray-500">Start</div><div className="text-gray-900 font-medium">{loan.start_date || loan.meta?.start_date}</div>
               <div className="text-gray-500">End</div><div className="text-gray-900 font-medium">{loan.end_date || loan.meta?.end_date}</div>
+              <div className="text-gray-500">Repayment Status</div>
+              <div className="text-gray-900 font-medium">
+                {(() => {
+                  // Calculate overall repayment status from schedule
+                  let overallStatus = 'Pending';
+                  if (schedule && schedule.length > 0) {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    let hasOverdue = false;
+                    let paidCount = 0;
+                    let partialCount = 0;
+                    
+                    schedule.forEach(r => {
+                      const status = (r.repayment_status || '').toLowerCase();
+                      if (status === 'paid') {
+                        paidCount++;
+                      } else if (status === 'partial') {
+                        partialCount++;
+                      } else {
+                        // Check if overdue
+                        const paymentDateStr = r.segment_end || r.repayment_date || r.end_date;
+                        if (paymentDateStr) {
+                          try {
+                            const paymentDate = new Date(paymentDateStr);
+                            paymentDate.setHours(0, 0, 0, 0);
+                            if (paymentDate < today) {
+                              hasOverdue = true;
+                            }
+                          } catch (e) {
+                            // Ignore date parsing errors
+                          }
+                        }
+                      }
+                    });
+                    
+                    if (paidCount === schedule.length) {
+                      overallStatus = 'Paid';
+                    } else if (hasOverdue) {
+                      overallStatus = 'Overdue';
+                    } else if (partialCount > 0 || paidCount > 0) {
+                      overallStatus = 'Partial';
+                    }
+                  }
+                  
+                  const statusClass = 
+                    overallStatus === 'Paid' ? 'bg-green-100 text-green-800' :
+                    overallStatus === 'Overdue' ? 'bg-red-100 text-red-800' :
+                    overallStatus === 'Partial' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-gray-100 text-gray-800';
+                  
+                  return (
+                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${statusClass}`}>
+                      {overallStatus}
+                    </span>
+                  );
+                })()}
+              </div>
             </div>
           </div>
           <div className="p-4 border rounded-lg bg-white">
@@ -624,8 +686,29 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {schedule.map((r, index) => {
-                    const statusClass = r.repayment_status === 'Paid' ? 'bg-green-100 text-green-800' 
-                      : r.repayment_status === 'Partial' ? 'bg-yellow-100 text-yellow-800'
+                    // Determine status: check if overdue first, then paid, otherwise pending
+                    let displayStatus = r.repayment_status || 'Pending';
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                    if (displayStatus !== 'Paid') {
+                      const paymentDateStr = r.segment_end || r.repayment_date || r.end_date;
+                      if (paymentDateStr) {
+                        try {
+                          const paymentDate = new Date(paymentDateStr);
+                          paymentDate.setHours(0, 0, 0, 0);
+                          if (paymentDate < today) {
+                            displayStatus = 'Overdue';
+                          }
+                        } catch (e) {
+                          // Ignore date parsing errors
+                        }
+                      }
+                    }
+                    
+                    const statusClass = displayStatus === 'Paid' ? 'bg-green-100 text-green-800' 
+                      : displayStatus === 'Overdue' ? 'bg-red-100 text-red-800'
+                      : displayStatus === 'Partial' ? 'bg-yellow-100 text-yellow-800'
                       : 'bg-gray-100 text-gray-800';
                     
                     // Use values from database, with fallback calculation for backward compatibility
@@ -653,7 +736,7 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                         <td className="px-2 py-1 text-right font-medium">{getCurrencySymbol(currency)}{(r.remain_balance || 0).toFixed(2)}</td>
                         <td className="px-2 py-1 text-center">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${statusClass}`}>
-                            {r.repayment_status || 'Pending'}
+                            {displayStatus}
                           </span>
                         </td>
                         <td className="px-3 py-1 text-xs text-gray-600 min-w-[250px] w-64 break-words">{r.repayment_note || '-'}</td>
@@ -668,9 +751,9 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
           {/* Payment Registration Modal */}
           {showPaymentModal && selectedSegment && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] flex flex-col">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Register Payment</h3>
-                <div className="space-y-4">
+                <div className="space-y-4 overflow-y-auto flex-1 pr-2">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Segment ID</label>
                     <input
@@ -701,6 +784,28 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     </div>
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Repayment Status</label>
+                    <div className="flex items-center">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        selectedSegment.repayment_status === 'Paid' ? 'bg-green-100 text-green-800' 
+                        : selectedSegment.repayment_status === 'Partial' ? 'bg-yellow-100 text-yellow-800'
+                        : selectedSegment.repayment_status === 'Overdue' ? 'bg-red-100 text-red-800'
+                        : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {selectedSegment.repayment_status || 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Repayment Type</label>
+                    <input
+                      type="text"
+                      value={loan?.repayment_type || loan?.meta?.repayment_type || '-'}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    />
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Remain Balance</label>
                     <input
                       type="text"
@@ -710,22 +815,41 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Paid Interest</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Interest (Scheduled)</label>
                     <input
                       type="text"
-                      value={`${getCurrencySymbol(currency)}${(paymentForm.paid_interest || 0).toFixed(2)}`}
+                      value={`${getCurrencySymbol(currency)}${(selectedSegment.accrued_interest || 0).toFixed(2)}`}
                       disabled
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Paid Principal</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Principal (Scheduled)</label>
+                    <input
+                      type="text"
+                      value={`${getCurrencySymbol(currency)}${(selectedSegment.scheduled_principal || 0).toFixed(2)}`}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Total Payment (Scheduled)</label>
+                    <input
+                      type="text"
+                      value={`${getCurrencySymbol(currency)}${((selectedSegment.scheduled_total_payment || 0) || ((selectedSegment.accrued_interest || 0) + (selectedSegment.scheduled_principal || 0))).toFixed(2)}`}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Paid Total Payment</label>
                     <input
                       type="number"
                       step="0.01"
-                      value={paymentForm.paid_principles}
-                      onChange={(e) => setPaymentForm({...paymentForm, paid_principles: e.target.value})}
+                      value={paymentForm.total_payment}
+                      onChange={(e) => setPaymentForm({...paymentForm, total_payment: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Enter total payment amount"
                     />
                   </div>
                   <div>

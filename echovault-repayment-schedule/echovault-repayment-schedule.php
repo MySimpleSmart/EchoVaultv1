@@ -2025,8 +2025,9 @@ final class EchoVault_Loan_Schedule_API {
         try {
             $loan_id = intval($request->get_param('loan_id'));
             $segment_id = intval($request->get_param('segment_id'));
-            $paid_interest = floatval($request->get_param('paid_interest') ?: 0);
-            $paid_principles = floatval($request->get_param('paid_principles') ?: 0);
+            $paid_interest = $request->get_param('paid_interest');
+            $paid_principles = $request->get_param('paid_principles');
+            $total_payment = $request->get_param('total_payment');
             $payment_date = sanitize_text_field($request->get_param('payment_date') ?: date('Y-m-d'));
             $repayment_note = sanitize_text_field($request->get_param('repayment_note') ?: '');
 
@@ -2034,10 +2035,20 @@ final class EchoVault_Loan_Schedule_API {
                 throw new WP_REST_Exception('invalid_params', 'Loan ID and Segment ID are required.', ['status' => 400]);
             }
 
-            error_log("EchoVault: Registering payment for loan $loan_id, segment $segment_id - interest: $paid_interest, principal: $paid_principles");
-
-            // Update the segment
-            $this->update_payment_segment($segment_id, $paid_interest, $paid_principles, $payment_date, $repayment_note);
+            // If total_payment is provided, calculate interest and principal split
+            // Otherwise use provided paid_interest and paid_principles (default to 0)
+            if ($total_payment !== null && $total_payment !== '' && floatval($total_payment) > 0) {
+                $total_payment_val = floatval($total_payment);
+                error_log("EchoVault: Registering payment for loan $loan_id, segment $segment_id - total payment: $total_payment_val (will calculate split)");
+                // Calculate split: pay interest first, then principal
+                $this->update_payment_segment_from_total($segment_id, $total_payment_val, $payment_date, $repayment_note);
+            } else {
+                $paid_interest = floatval($paid_interest ?: 0);
+                $paid_principles = floatval($paid_principles ?: 0);
+                error_log("EchoVault: Registering payment for loan $loan_id, segment $segment_id - interest: $paid_interest, principal: $paid_principles");
+                // Update the segment
+                $this->update_payment_segment($segment_id, $paid_interest, $paid_principles, $payment_date, $repayment_note, null);
+            }
 
             // Recalculate all future segments
             $this->recalculate_future_segments($loan_id, $segment_id);
@@ -2598,7 +2609,7 @@ final class EchoVault_Loan_Schedule_API {
     /**
      * Update payment segment
      */
-    private function update_payment_segment(int $segment_id, float $paid_interest, float $paid_principles, string $payment_date, string $note): void {
+    private function update_payment_segment(int $segment_id, float $paid_interest, float $paid_principles, string $payment_date, string $note, ?float $total_payment = null): void {
         $this->ensure_table_exists();
         global $wpdb;
         $table_name = $this->get_table_name();
@@ -2622,7 +2633,19 @@ final class EchoVault_Loan_Schedule_API {
         
         $new_paid_interest = $existing_paid_interest + $paid_interest;
         $new_paid_principles = $existing_paid_principles + $paid_principles;
-        $total_payment = $new_paid_interest + $new_paid_principles;
+        
+        // Use provided total_payment if available (it should be the new payment amount, not accumulated)
+        // If provided, we'll use it as the new total payment amount
+        // Otherwise, calculate from accumulated interest + principal
+        if ($total_payment !== null) {
+            // If total_payment is provided, it represents the new total payment amount
+            // We need to add it to the existing total_payment
+            $existing_total_payment = floatval($segment['total_payment'] ?: 0);
+            $total_payment = $existing_total_payment + floatval($total_payment);
+        } else {
+            // Calculate from accumulated interest + principal
+            $total_payment = $new_paid_interest + $new_paid_principles;
+        }
         $outstanding_interest = max(0, $accrued_interest - $new_paid_interest);
         $remain_balance = max(0, $start_balance - $new_paid_principles);
 
@@ -2657,7 +2680,85 @@ final class EchoVault_Loan_Schedule_API {
             error_log("EchoVault: Failed to update segment $segment_id: " . $wpdb->last_error);
             throw new Exception('Failed to update payment segment');
         }
+    }
+
+    /**
+     * Update payment segment from total payment amount
+     * Calculates split: pays interest first, then principal
+     */
+    private function update_payment_segment_from_total(int $segment_id, float $total_payment, string $payment_date, string $note): void {
+        $this->ensure_table_exists();
+        global $wpdb;
+        $table_name = $this->get_table_name();
         
+        // Get current segment data
+        $segment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE id = %d",
+            $segment_id
+        ), ARRAY_A);
+        
+        if (!$segment) {
+            throw new WP_REST_Exception('segment_not_found', 'Repayment segment not found.', ['status' => 404]);
+        }
+
+        $start_balance = floatval($segment['start_balance']);
+        $accrued_interest = floatval($segment['accrued_interest']);
+        
+        // Get existing payments
+        $existing_paid_interest = floatval($segment['paid_interest'] ?: 0);
+        $existing_paid_principles = floatval($segment['paid_principles'] ?: 0);
+        
+        // Calculate how much interest and principal are still owed
+        $outstanding_interest = max(0, $accrued_interest - $existing_paid_interest);
+        $outstanding_principal = max(0, $start_balance - $existing_paid_principles);
+        
+        // Split the payment: pay interest first, then principal
+        $paid_interest = min($total_payment, $outstanding_interest);
+        $remaining_after_interest = max(0, $total_payment - $paid_interest);
+        $paid_principles = min($remaining_after_interest, $outstanding_principal);
+        
+        // Calculate new totals
+        $new_paid_interest = $existing_paid_interest + $paid_interest;
+        $new_paid_principles = $existing_paid_principles + $paid_principles;
+        $new_total_payment = $existing_paid_interest + $existing_paid_principles + $total_payment;
+        
+        // Recalculate outstanding amounts
+        $outstanding_interest = max(0, $accrued_interest - $new_paid_interest);
+        $remain_balance = max(0, $start_balance - $new_paid_principles);
+        
+        // Determine status
+        $repayment_status = 'Pending';
+        if ($new_total_payment > 0) {
+            if ($new_paid_interest >= $accrued_interest && $new_paid_principles >= ($start_balance * 0.99)) {
+                $repayment_status = 'Paid';
+            } elseif ($new_total_payment > 0) {
+                $repayment_status = 'Partial';
+            }
+        }
+        
+        // Update custom table
+        $result = $wpdb->update(
+            $table_name,
+            [
+                'paid_interest' => round($new_paid_interest, 2),
+                'paid_principles' => round($new_paid_principles, 2),
+                'total_payment' => round($new_total_payment, 2),
+                'outstanding_interest' => round($outstanding_interest, 2),
+                'remain_balance' => round($remain_balance, 2),
+                'repayment_status' => $repayment_status,
+                'repayment_note' => $note,
+            ],
+            ['id' => $segment_id],
+            ['%f', '%f', '%f', '%f', '%f', '%s', '%s'],
+            ['%d']
+        );
+        
+        if ($result === false) {
+            error_log("EchoVault: Failed to update segment $segment_id: " . $wpdb->last_error);
+            throw new Exception('Failed to update payment segment');
+        }
+        
+        error_log("EchoVault: Payment split calculated - interest: $paid_interest, principal: $paid_principles, total: $total_payment");
         error_log("EchoVault: Updated segment $segment_id - paid interest: $new_paid_interest, paid principal: $new_paid_principles, status: $repayment_status");
     }
 
