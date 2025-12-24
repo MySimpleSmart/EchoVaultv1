@@ -24,6 +24,7 @@ register_activation_hook(__FILE__, static function () {
         related_loan bigint(20) UNSIGNED NOT NULL,
         segment_start date NOT NULL,
         segment_end date NOT NULL,
+        paid_date date DEFAULT NULL,
         loan_days int(11) NOT NULL DEFAULT 0,
         start_balance decimal(15,2) NOT NULL DEFAULT 0.00,
         accrued_interest decimal(15,2) NOT NULL DEFAULT 0.00,
@@ -103,6 +104,7 @@ final class EchoVault_Loan_Schedule_API {
             related_loan bigint(20) UNSIGNED NOT NULL,
             segment_start date NOT NULL,
             segment_end date NOT NULL,
+            paid_date date DEFAULT NULL,
             loan_days int(11) NOT NULL DEFAULT 0,
             start_balance decimal(15,2) NOT NULL DEFAULT 0.00,
             accrued_interest decimal(15,2) NOT NULL DEFAULT 0.00,
@@ -153,6 +155,17 @@ final class EchoVault_Loan_Schedule_API {
         if (empty($column_exists)) {
             $wpdb->query("ALTER TABLE $table_name ADD COLUMN scheduled_total_payment decimal(15,2) NOT NULL DEFAULT 0.00 AFTER scheduled_principal");
             error_log("EchoVault: Added scheduled_total_payment column to $table_name");
+        }
+        
+        // Check if paid_date column exists
+        $column_exists = $wpdb->get_results($wpdb->prepare(
+            "SHOW COLUMNS FROM $table_name LIKE %s",
+            'paid_date'
+        ));
+        
+        if (empty($column_exists)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN paid_date date DEFAULT NULL AFTER segment_end");
+            error_log("EchoVault: Added paid_date column to $table_name");
         }
     }
 
@@ -240,6 +253,9 @@ final class EchoVault_Loan_Schedule_API {
      * Render admin page to view repayment schedules
      */
     public function render_admin_page(): void {
+        // Ensure table exists and migrations are run
+        $this->ensure_table_exists();
+        
         global $wpdb;
         $table_name = $this->get_table_name();
         
@@ -317,6 +333,7 @@ final class EchoVault_Loan_Schedule_API {
                                 <th>#</th>
                                 <th>Start Date</th>
                                 <th>End Date</th>
+                                <th>Paid Date</th>
                                 <th>Days</th>
                                 <th>Start Balance</th>
                                 <th>Interest</th>
@@ -347,6 +364,7 @@ final class EchoVault_Loan_Schedule_API {
                                     <td><?php echo esc_html($index); ?></td>
                                     <td><?php echo esc_html($schedule['segment_start']); ?></td>
                                     <td><?php echo esc_html($schedule['segment_end']); ?></td>
+                                    <td><?php echo esc_html(isset($schedule['paid_date']) && $schedule['paid_date'] ? $schedule['paid_date'] : '-'); ?></td>
                                     <td><?php echo esc_html($schedule['loan_days']); ?></td>
                                     <td><?php echo number_format($schedule['start_balance'], 2); ?></td>
                                     <td><?php echo number_format($schedule['accrued_interest'], 2); ?></td>
@@ -2649,16 +2667,83 @@ final class EchoVault_Loan_Schedule_API {
         $outstanding_interest = max(0, $accrued_interest - $new_paid_interest);
         $remain_balance = max(0, $start_balance - $new_paid_principles);
 
-        // Determine status
-        $repayment_status = 'Pending';
-        if ($total_payment > 0) {
-            if ($new_paid_interest >= $accrued_interest && $new_paid_principles >= ($start_balance * 0.99)) {
-                $repayment_status = 'Paid';
-            } elseif ($total_payment > 0) {
-                $repayment_status = 'Partial';
+        // Get scheduled amounts for this segment
+        $scheduled_principal = floatval($segment['scheduled_principal'] ?: 0);
+        $scheduled_total_payment = floatval($segment['scheduled_total_payment'] ?: 0);
+        
+        // If scheduled_total_payment not stored, calculate it
+        // IMPORTANT: Use the original scheduled remain_balance, not the updated one after payments
+        if ($scheduled_total_payment <= 0) {
+            if ($scheduled_principal > 0) {
+                $scheduled_total_payment = $accrued_interest + $scheduled_principal;
+            } else {
+                // Try to get the original scheduled remain_balance from the next segment's start_balance
+                // Or calculate from what the scheduled principal should be
+                // The scheduled principal = start_balance - (scheduled remain_balance after this segment)
+                // We can get the scheduled remain_balance from the next segment, or use a fallback
+                $next_segment = $wpdb->get_row($wpdb->prepare(
+                    "SELECT start_balance FROM $table_name WHERE related_loan = %d AND id > %d ORDER BY id ASC LIMIT 1",
+                    $segment['related_loan'],
+                    $segment_id
+                ), ARRAY_A);
+                
+                if ($next_segment && isset($next_segment['start_balance'])) {
+                    // The next segment's start_balance should equal this segment's scheduled remain_balance
+                    $scheduled_remain_balance = floatval($next_segment['start_balance']);
+                    $scheduled_principal = max(0, $start_balance - $scheduled_remain_balance);
+                } else {
+                    // Fallback: use current remain_balance (might be updated, but better than nothing)
+                    $scheduled_remain_balance = floatval($segment['remain_balance'] ?: $start_balance);
+                    $scheduled_principal = max(0, $start_balance - $scheduled_remain_balance);
+                }
+                $scheduled_total_payment = $accrued_interest + $scheduled_principal;
             }
+        } else if ($scheduled_principal <= 0) {
+            // We have scheduled_total_payment but not scheduled_principal
+            $scheduled_principal = max(0, $scheduled_total_payment - $accrued_interest);
         }
 
+        // SIMPLE LOGIC: Status is "Paid" ONLY if total_payment >= scheduled_total_payment
+        // Otherwise, status is "Pending" (frontend will show "Overdue" if due date passed)
+        $repayment_status = 'Pending';
+        
+        // Round both values to 2 decimal places for consistent comparison
+        $rounded_total_payment = round($total_payment, 2);
+        $rounded_scheduled_total = round($scheduled_total_payment, 2);
+        
+        if ($rounded_total_payment > 0 && $rounded_scheduled_total > 0) {
+            // Check if total payment covers scheduled total payment (with tolerance for rounding errors)
+            // Use >= comparison with small tolerance to account for floating point precision
+            // Increased tolerance from 0.01 to 0.02 to handle rounding better
+            if ($rounded_total_payment >= ($rounded_scheduled_total - 0.02)) {
+                $repayment_status = 'Paid';
+                error_log("EchoVault: Segment $segment_id marked as Paid - total_payment: $rounded_total_payment >= scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $accrued_interest, principal: $scheduled_principal)");
+            } else {
+                // Payment made but not full - keep as "Pending" (frontend will show "Overdue" if due date passed)
+                $repayment_status = 'Pending';
+                error_log("EchoVault: Segment $segment_id remains Pending - total_payment: $rounded_total_payment < scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $new_paid_interest / $accrued_interest, principal: $new_paid_principles / $scheduled_principal)");
+            }
+        } else {
+            error_log("EchoVault: Segment $segment_id remains Pending - no payment made (total_payment: $rounded_total_payment, scheduled_total: $rounded_scheduled_total)");
+        }
+
+        // Update paid_date: set it when payment is registered, or keep existing if already set
+        // Set paid_date if payment is being made (total_payment > 0) and no date is already recorded
+        $update_paid_date = null;
+        if ($total_payment > 0) {
+            // If payment is being made, set the paid_date
+            // Use provided payment_date or current date, unless a paid_date already exists
+            if (empty($segment['paid_date'])) {
+                $update_paid_date = $payment_date ?: date('Y-m-d');
+            } else {
+                // Keep existing paid_date
+                $update_paid_date = $segment['paid_date'];
+            }
+        } else {
+            // No payment made, keep existing paid_date or leave as null
+            $update_paid_date = $segment['paid_date'] ?: null;
+        }
+        
         // Update custom table
         $result = $wpdb->update(
             $table_name,
@@ -2669,10 +2754,11 @@ final class EchoVault_Loan_Schedule_API {
                 'outstanding_interest' => round($outstanding_interest, 2),
                 'remain_balance' => round($remain_balance, 2),
                 'repayment_status' => $repayment_status,
+                'paid_date' => $update_paid_date,
                 'repayment_note' => $note,
             ],
             ['id' => $segment_id],
-            ['%f', '%f', '%f', '%f', '%f', '%s', '%s'],
+            ['%f', '%f', '%f', '%f', '%f', '%s', '%s', '%s'],
             ['%d']
         );
         
@@ -2720,20 +2806,83 @@ final class EchoVault_Loan_Schedule_API {
         // Calculate new totals
         $new_paid_interest = $existing_paid_interest + $paid_interest;
         $new_paid_principles = $existing_paid_principles + $paid_principles;
-        $new_total_payment = $existing_paid_interest + $existing_paid_principles + $total_payment;
+        $existing_total_payment = floatval($segment['total_payment'] ?: 0);
+        $new_total_payment = $existing_total_payment + $total_payment;
         
         // Recalculate outstanding amounts
         $outstanding_interest = max(0, $accrued_interest - $new_paid_interest);
         $remain_balance = max(0, $start_balance - $new_paid_principles);
         
-        // Determine status
-        $repayment_status = 'Pending';
-        if ($new_total_payment > 0) {
-            if ($new_paid_interest >= $accrued_interest && $new_paid_principles >= ($start_balance * 0.99)) {
-                $repayment_status = 'Paid';
-            } elseif ($new_total_payment > 0) {
-                $repayment_status = 'Partial';
+        // Get scheduled amounts for this segment
+        $scheduled_principal = floatval($segment['scheduled_principal'] ?: 0);
+        $scheduled_total_payment = floatval($segment['scheduled_total_payment'] ?: 0);
+        
+        // If scheduled amounts not in DB, calculate them
+        // IMPORTANT: Get the original scheduled remain_balance from the next segment's start_balance
+        if ($scheduled_total_payment <= 0) {
+            if ($scheduled_principal <= 0) {
+                // Get the original scheduled remain_balance from the next segment's start_balance
+                $next_segment = $wpdb->get_row($wpdb->prepare(
+                    "SELECT start_balance FROM $table_name WHERE related_loan = %d AND id > %d ORDER BY id ASC LIMIT 1",
+                    $segment['related_loan'],
+                    $segment_id
+                ), ARRAY_A);
+                
+                if ($next_segment && isset($next_segment['start_balance'])) {
+                    // The next segment's start_balance equals this segment's original scheduled remain_balance
+                    $original_scheduled_remain_balance = floatval($next_segment['start_balance']);
+                    $scheduled_principal = max(0, $start_balance - $original_scheduled_remain_balance);
+                } else {
+                    // Last segment - use current remain_balance as fallback (should be close to 0 for last segment)
+                    $original_scheduled_remain_balance = floatval($segment['remain_balance'] ?: 0);
+                    $scheduled_principal = max(0, $start_balance - $original_scheduled_remain_balance);
+                }
             }
+            $scheduled_total_payment = $accrued_interest + $scheduled_principal;
+        } else if ($scheduled_principal <= 0) {
+            // We have scheduled_total_payment but not scheduled_principal
+            $scheduled_principal = max(0, $scheduled_total_payment - $accrued_interest);
+        }
+        
+        // SIMPLE LOGIC: Status is "Paid" ONLY if new_total_payment >= scheduled_total_payment
+        // Otherwise, status is "Pending" (frontend will show "Overdue" if due date passed)
+        $repayment_status = 'Pending';
+        
+        // Round both values to 2 decimal places for consistent comparison
+        $rounded_new_total_payment = round($new_total_payment, 2);
+        $rounded_scheduled_total = round($scheduled_total_payment, 2);
+        
+        if ($rounded_new_total_payment > 0 && $rounded_scheduled_total > 0) {
+            // Check if total payment covers scheduled total payment (with tolerance for rounding errors)
+            // Use >= comparison with small tolerance to account for floating point precision
+            // Increased tolerance from 0.01 to 0.02 to handle rounding better
+            if ($rounded_new_total_payment >= ($rounded_scheduled_total - 0.02)) {
+                $repayment_status = 'Paid';
+                error_log("EchoVault: Segment $segment_id marked as Paid - new_total_payment: $rounded_new_total_payment >= scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $accrued_interest, principal: $scheduled_principal)");
+            } else {
+                // Payment made but not full - keep as "Pending" (frontend will show "Overdue" if due date passed)
+                $repayment_status = 'Pending';
+                error_log("EchoVault: Segment $segment_id remains Pending - new_total_payment: $rounded_new_total_payment < scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $new_paid_interest / $accrued_interest, principal: $new_paid_principles / $scheduled_principal)");
+            }
+        } else {
+            error_log("EchoVault: Segment $segment_id remains Pending - no payment made (new_total_payment: $rounded_new_total_payment, scheduled_total: $rounded_scheduled_total)");
+        }
+        
+        // Update paid_date: set it when payment is registered, or keep existing if already set
+        // Set paid_date if payment is being made (new_total_payment > 0) and no date is already recorded
+        $update_paid_date = null;
+        if ($new_total_payment > 0) {
+            // If payment is being made, set the paid_date
+            // Use provided payment_date or current date, unless a paid_date already exists
+            if (empty($segment['paid_date'])) {
+                $update_paid_date = $payment_date ?: date('Y-m-d');
+            } else {
+                // Keep existing paid_date
+                $update_paid_date = $segment['paid_date'];
+            }
+        } else {
+            // No payment made, keep existing paid_date or leave as null
+            $update_paid_date = $segment['paid_date'] ?: null;
         }
         
         // Update custom table
@@ -2746,10 +2895,11 @@ final class EchoVault_Loan_Schedule_API {
                 'outstanding_interest' => round($outstanding_interest, 2),
                 'remain_balance' => round($remain_balance, 2),
                 'repayment_status' => $repayment_status,
+                'paid_date' => $update_paid_date,
                 'repayment_note' => $note,
             ],
             ['id' => $segment_id],
-            ['%f', '%f', '%f', '%f', '%f', '%s', '%s'],
+            ['%f', '%f', '%f', '%f', '%f', '%s', '%s', '%s'],
             ['%d']
         );
         
@@ -2879,6 +3029,7 @@ final class EchoVault_Loan_Schedule_API {
                 'related_loan' => (int)$row['related_loan'],
                 'segment_start' => (string)$row['segment_start'],
                 'segment_end' => (string)$row['segment_end'],
+                'paid_date' => isset($row['paid_date']) && $row['paid_date'] ? (string)$row['paid_date'] : null,
                 'loan_days' => (int)$row['loan_days'],
                 'start_balance' => (float)$row['start_balance'],
                 'accrued_interest' => (float)$row['accrued_interest'],

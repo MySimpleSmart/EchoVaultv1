@@ -90,45 +90,120 @@ const LoansActive = ({ token, setCurrentView }) => {
               if (scheduleJson.success && scheduleJson.schedule && Array.isArray(scheduleJson.schedule)) {
                 const schedule = scheduleJson.schedule;
                 
-                // Calculate overall repayment status
-                let overallStatus = 'Pending';
-                let hasOverdue = false;
-                let paidCount = 0;
-                let partialCount = 0;
+                // Find the most recent segment by due date to determine repayment status
+                let displayStatus = 'Pending';
+                let hasOverduePaid = false;
+                
+                // Find the segment with the most recent due date that has passed
+                // This represents the current payment status
+                let mostRecentPassedSegment = null;
+                let mostRecentPassedDate = null;
+                
+                // Also track if all segments are paid
+                let allSegmentsPaid = true;
                 
                 schedule.forEach(r => {
-                  const status = (r.repayment_status || '').toLowerCase();
-                  if (status === 'paid') {
-                    paidCount++;
-                  } else if (status === 'partial') {
-                    partialCount++;
+                  const originalStatus = String(r.repayment_status || 'Pending').trim();
+                  const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
+                  
+                  // Check if this segment is paid
+                  if (originalStatus.toLowerCase() !== 'paid') {
+                    allSegmentsPaid = false;
+                  }
+                  
+                  // Check if due date has passed
+                  if (dueDateStr) {
+                    try {
+                      const dueDate = new Date(dueDateStr);
+                      dueDate.setHours(0, 0, 0, 0);
+                      if (dueDate < today) {
+                        // This segment's due date has passed
+                        // Check if this is the most recent passed segment
+                        if (!mostRecentPassedDate || dueDate > mostRecentPassedDate) {
+                          mostRecentPassedDate = dueDate;
+                          mostRecentPassedSegment = r;
+                        }
+                      }
+                    } catch (e) {
+                      // Ignore date parsing errors
+                    }
+                  }
+                });
+                
+                // Determine status based on the most recent passed segment
+                if (allSegmentsPaid) {
+                  // All segments are paid - check if any was overdue when paid
+                  schedule.forEach(r => {
+                    const originalStatus = String(r.repayment_status || 'Pending').trim();
+                    if (originalStatus.toLowerCase() === 'paid') {
+                      const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
+                      if (dueDateStr) {
+                        try {
+                          const dueDate = new Date(dueDateStr);
+                          dueDate.setHours(0, 0, 0, 0);
+                          if (dueDate < today) {
+                            hasOverduePaid = true;
+                          }
+                        } catch (e) {}
+                      }
+                    }
+                  });
+                  displayStatus = 'Paid';
+                } else if (mostRecentPassedSegment) {
+                  // We have a segment whose due date has passed - check its status
+                  const originalStatus = String(mostRecentPassedSegment.repayment_status || 'Pending').trim();
+                  
+                  // ONLY 4 BADGES:
+                  // 1. "Paid (on time)" (GREEN): Status = "Paid" AND due date hasn't passed
+                  // 2. "Paid (overdue)" (RED): Status = "Paid" AND due date has passed
+                  // 3. "Overdue" (RED): Status ≠ "Paid" AND due date has passed
+                  // 4. "Pending" (GRAY): Status ≠ "Paid" AND due date hasn't passed
+                  
+                  if (originalStatus.toLowerCase() === 'paid') {
+                    displayStatus = 'Paid';
+                    hasOverduePaid = true; // Due date passed and it's paid
                   } else {
-                    // Check if overdue
-                    const paymentDateStr = r.segment_end || r.repayment_date || r.end_date;
-                    if (paymentDateStr) {
+                    // Status is not "Paid" and due date has passed → "Overdue"
+                    displayStatus = 'Overdue';
+                  }
+                } else {
+                  // No segments have passed their due date yet
+                  // Find the most recent segment to check its status
+                  let mostRecentSegment = null;
+                  let mostRecentDate = null;
+                  
+                  schedule.forEach(r => {
+                    const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
+                    if (dueDateStr) {
                       try {
-                        const paymentDate = new Date(paymentDateStr);
-                        paymentDate.setHours(0, 0, 0, 0);
-                        if (paymentDate < today && status !== 'paid') {
-                          hasOverdue = true;
+                        const dueDate = new Date(dueDateStr);
+                        dueDate.setHours(0, 0, 0, 0);
+                        if (!mostRecentDate || dueDate > mostRecentDate) {
+                          mostRecentDate = dueDate;
+                          mostRecentSegment = r;
                         }
                       } catch (e) {
                         // Ignore date parsing errors
                       }
                     }
+                  });
+                  
+                  if (mostRecentSegment) {
+                    const originalStatus = String(mostRecentSegment.repayment_status || 'Pending').trim();
+                    if (originalStatus.toLowerCase() === 'paid') {
+                      displayStatus = 'Paid';
+                    } else {
+                      // Not paid = Pending (frontend will show Overdue if due date passed)
+                      displayStatus = 'Pending';
+                    }
                   }
-                });
-                
-                // Determine overall status
-                if (paidCount === schedule.length) {
-                  overallStatus = 'Paid';
-                } else if (hasOverdue) {
-                  overallStatus = 'Overdue';
-                } else if (partialCount > 0 || paidCount > 0) {
-                  overallStatus = 'Partial';
                 }
                 
-                statusMap[loan.id] = overallStatus;
+                // Store status with flag for overdue paid
+                statusMap[loan.id] = {
+                  status: displayStatus,
+                  hasOverduePaid: hasOverduePaid
+                };
               }
             }
           } catch (e) {
@@ -450,11 +525,27 @@ const LoansActive = ({ token, setCurrentView }) => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     {(() => {
-                      const repaymentStatus = loanRepaymentStatuses[l.id] || 'Pending';
+                      const repaymentStatusData = loanRepaymentStatuses[l.id];
+                      let repaymentStatus = 'Pending';
+                      let hasOverduePaid = false;
+                      
+                      if (repaymentStatusData) {
+                        if (typeof repaymentStatusData === 'string') {
+                          repaymentStatus = repaymentStatusData;
+                        } else {
+                          repaymentStatus = repaymentStatusData.status || 'Pending';
+                          hasOverduePaid = repaymentStatusData.hasOverduePaid || false;
+                        }
+                      }
+                      
+                      // Determine badge color - ONLY 4 BADGES:
+                      // - Paid (on time): green
+                      // - Paid (overdue): red
+                      // - Overdue: red
+                      // - Pending: gray
                       const repaymentStatusClass = 
-                        repaymentStatus === 'Paid' ? 'bg-green-100 text-green-800' :
+                        repaymentStatus === 'Paid' ? (hasOverduePaid ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800') :
                         repaymentStatus === 'Overdue' ? 'bg-red-100 text-red-800' :
-                        repaymentStatus === 'Partial' ? 'bg-yellow-100 text-yellow-800' :
                         'bg-gray-100 text-gray-800';
                       return (
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${repaymentStatusClass}`}>

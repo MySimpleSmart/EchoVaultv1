@@ -1741,6 +1741,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Interest</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Total Payment</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Outstanding Interest</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Remaining Balance</th>
                           </tr>
                         </thead>
@@ -1768,6 +1769,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}0.00</td>
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
                               </tr>
                             );
@@ -1796,6 +1798,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Interest</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Principal</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Total Payment</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700">Outstanding Interest</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700">Remaining Balance</th>
                           </tr>
                         </thead>
@@ -1821,6 +1824,7 @@ API endpoint: ${apiBase}/echovault/v2/calculate-schedule`;
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.interest.toFixed(2)}</td>
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.principal.toFixed(2)}</td>
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.payment.toFixed(2)}</td>
+                                <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}0.00</td>
                                 <td className="px-3 py-1 text-right">{getCurrencySymbol(form.loan_currency || selectedProduct?.currency)}{row.balance.toFixed(2)}</td>
                               </tr>
                             );

@@ -53,6 +53,7 @@ final class EchoVault_Loan_Schedule_API {
     private const GENERATE_SCHEDULE_ROUTE = '/generate-repayment-schedule';
     private const REGISTER_PAYMENT_ROUTE  = '/register-payment';
     private const GET_SCHEDULE_ROUTE      = '/get-repayment-schedule';
+    private const DELETE_SCHEDULE_ROUTE   = '/delete-repayment-schedule';
     private const REPAYMENT_SCHEDULE_POST_TYPE = 'repayment_schedule';
     
     /**
@@ -71,14 +72,11 @@ final class EchoVault_Loan_Schedule_API {
         // Generate schedule once, when key meta fields are present
         add_action('updated_post_meta', [$this, 'maybe_generate_schedule_from_meta'], 10, 4);
 
-        // Delete repayment schedules when loan is deleted
-        // Use before_delete_post to get post object before it's deleted
-        add_action('before_delete_post', [$this, 'delete_schedules_before_delete'], 10, 1);
-        // Fallback hooks in case before_delete_post doesn't fire
-        add_action('delete_post', [$this, 'delete_schedules_after_delete'], 10, 1);
-
         // Admin UI for viewing repayment schedules
         add_action('admin_menu', [$this, 'add_admin_menu']);
+        
+        // Handle manual deletion from admin page
+        add_action('admin_init', [$this, 'handle_manual_delete']);
     }
 
     /**
@@ -154,69 +152,38 @@ final class EchoVault_Loan_Schedule_API {
     }
     
     /**
-     * Delete repayment schedules when loan is deleted.
-     * 
-     * Called from before_delete_post hook - post object still exists at this point.
-     * This is the primary deletion handler.
+     * Handle manual deletion of repayment schedules from admin page
      */
-    public function delete_schedules_before_delete($post_id): void {
-        // Prevent duplicate execution
-        static $processed = [];
-        if (isset($processed[$post_id])) {
+    public function handle_manual_delete(): void {
+        // Check if this is a delete request
+        if (!isset($_GET['echovault_delete_schedule']) || !isset($_GET['loan_id'])) {
             return;
         }
         
-        // Get post object - it should still exist in before_delete_post hook
-        $post = get_post($post_id);
-        
-        // Only process loans post type
-        if (!$post || $post->post_type !== 'loans') {
-            return;
+        // Verify nonce for security
+        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'delete_schedule_' . intval($_GET['loan_id']))) {
+            wp_die('Security check failed');
         }
         
-        // Mark as processed before deletion to prevent duplicate calls
-        $processed[$post_id] = true;
-        
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log("EchoVault: Loan $post_id (post_type: {$post->post_type}) is being deleted, removing associated repayment schedules");
+        // Check user permissions
+        if (!current_user_can('manage_options')) {
+            wp_die('You do not have permission to delete repayment schedules');
         }
+        
+        $loan_id = intval($_GET['loan_id']);
         
         // Delete all schedules for this loan
-        $deleted = $this->delete_existing_schedule($post_id);
+        $deleted = $this->delete_existing_schedule($loan_id);
         
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log("EchoVault: Deleted $deleted repayment schedule rows for loan $post_id");
-        }
-    }
-    
-    /**
-     * Fallback deletion handler for delete_post hook.
-     * 
-     * This is a fallback in case before_delete_post doesn't fire.
-     * At this point the post is already deleted, so we can't check post_type.
-     * We'll attempt deletion for any post_id that hasn't been processed yet.
-     */
-    public function delete_schedules_after_delete($post_id): void {
-        // Prevent duplicate execution
-        static $processed = [];
-        if (isset($processed[$post_id])) {
-            return;
-        }
+        // Redirect back with success message
+        $redirect_url = add_query_arg([
+            'page' => 'echovault-repayment-schedules',
+            'deleted' => $deleted,
+            'loan_id' => $loan_id > 0 ? $loan_id : null
+        ], admin_url('admin.php'));
         
-        // Mark as processed
-        $processed[$post_id] = true;
-        
-        // At this point we can't check post_type, but we can safely attempt deletion
-        // If there are no schedules, the delete will just affect 0 rows
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log("EchoVault: delete_post hook fired for post $post_id, attempting to delete repayment schedules (fallback)");
-        }
-        
-        $deleted = $this->delete_existing_schedule($post_id);
-        
-        if (defined('WP_DEBUG') && WP_DEBUG && $deleted > 0) {
-            error_log("EchoVault: Fallback deletion removed $deleted repayment schedule rows for post $post_id");
-        }
+        wp_redirect($redirect_url);
+        exit;
     }
     
     /**
@@ -275,9 +242,18 @@ final class EchoVault_Loan_Schedule_API {
             }
         }
         
+        // Handle success message
+        $deleted_count = isset($_GET['deleted']) ? intval($_GET['deleted']) : 0;
+        
         ?>
         <div class="wrap">
             <h1>Repayment Schedules</h1>
+            
+            <?php if ($deleted_count > 0): ?>
+                <div class="notice notice-success is-dismissible">
+                    <p>Successfully deleted <?php echo esc_html($deleted_count); ?> repayment schedule row(s).</p>
+                </div>
+            <?php endif; ?>
             
             <?php if ($loan_id > 0): ?>
                 <p><a href="<?php echo admin_url('admin.php?page=echovault-repayment-schedules'); ?>">&larr; Back to All Schedules</a></p>
@@ -286,6 +262,20 @@ final class EchoVault_Loan_Schedule_API {
                 <?php if (empty($schedules)): ?>
                     <p>No repayment schedule found for this loan.</p>
                 <?php else: ?>
+                    <p>
+                        <a href="<?php echo wp_nonce_url(
+                            add_query_arg([
+                                'page' => 'echovault-repayment-schedules',
+                                'echovault_delete_schedule' => '1',
+                                'loan_id' => $loan_id
+                            ], admin_url('admin.php')),
+                            'delete_schedule_' . $loan_id
+                        ); ?>" 
+                        class="button button-secondary" 
+                        onclick="return confirm('Are you sure you want to delete all repayment schedules for this loan? This action cannot be undone.');">
+                            Delete All Schedules for This Loan
+                        </a>
+                    </p>
                     <table class="wp-list-table widefat fixed striped">
                         <thead>
                             <tr>
@@ -350,13 +340,22 @@ final class EchoVault_Loan_Schedule_API {
                                 $initial_balance = isset($schedules_for_loan[0]['start_balance'])
                                     ? (float) $schedules_for_loan[0]['start_balance']
                                     : 0.0;
-                                // Remaining balance: from the last segment's remain_balance
-                                $last_segment = end($schedules_for_loan);
-                                $remaining_balance = $last_segment && isset($last_segment['remain_balance'])
-                                    ? (float) $last_segment['remain_balance']
-                                    : 0.0;
-                                // Reset array pointer after end()
-                                reset($schedules_for_loan);
+                                // Remaining balance: find the FIRST segment with "Pending" status (top of the list)
+                                // This shows the current outstanding balance that needs to be paid
+                                $remaining_balance = 0.0;
+                                foreach ($schedules_for_loan as $segment) {
+                                    $segment_status = isset($segment['repayment_status']) ? $segment['repayment_status'] : 'Pending';
+                                    // Use the first segment with Pending status
+                                    if ($segment_status === 'Pending') {
+                                        $remaining_balance = isset($segment['remain_balance']) ? (float) $segment['remain_balance'] : 0.0;
+                                        break;
+                                    }
+                                }
+                                // If no Pending segment found, use the last segment's balance as fallback
+                                if ($remaining_balance == 0.0 && !empty($schedules_for_loan)) {
+                                    $last_segment = end($schedules_for_loan);
+                                    $remaining_balance = isset($last_segment['remain_balance']) ? (float) $last_segment['remain_balance'] : 0.0;
+                                }
                                 ?>
                                 <tr>
                                     <td><?php echo esc_html($loan_data['loan_title']); ?></td>
@@ -372,6 +371,19 @@ final class EchoVault_Loan_Schedule_API {
                                     </td>
                                     <td>
                                         <a href="<?php echo admin_url('admin.php?page=echovault-repayment-schedules&loan_id=' . $loan_data['loan_id']); ?>">View Details</a>
+                                        |
+                                        <a href="<?php echo wp_nonce_url(
+                                            add_query_arg([
+                                                'page' => 'echovault-repayment-schedules',
+                                                'echovault_delete_schedule' => '1',
+                                                'loan_id' => $loan_data['loan_id']
+                                            ], admin_url('admin.php')),
+                                            'delete_schedule_' . $loan_data['loan_id']
+                                        ); ?>" 
+                                        style="color: #a00;" 
+                                        onclick="return confirm('Are you sure you want to delete all repayment schedules for loan #<?php echo esc_js($loan_data['loan_id']); ?>? This action cannot be undone.');">
+                                            Delete
+                                        </a>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -552,6 +564,17 @@ final class EchoVault_Loan_Schedule_API {
             [
                 'methods'             => ['GET', 'POST', 'OPTIONS'],
                 'callback'            => [$this, 'handle_get_schedule'],
+                'permission_callback' => '__return_true',
+            ]
+        );
+        
+        // Delete repayment schedule endpoint
+        register_rest_route(
+            self::ROUTE_NAMESPACE,
+            self::DELETE_SCHEDULE_ROUTE,
+            [
+                'methods'             => ['POST', 'DELETE', 'OPTIONS'],
+                'callback'            => [$this, 'handle_delete_schedule'],
                 'permission_callback' => '__return_true',
             ]
         );
@@ -801,15 +824,48 @@ final class EchoVault_Loan_Schedule_API {
             $rows[] = $this->row($periods - 1, $start, $payload['repayment_frequency'], $interest_only + $balance, $balance, $interest_only, 0);
         }
         // Equal Principal Payment (Default)
-        // Fixed principal amount per period, interest calculated on remaining balance
+        // Fixed principal amount per period, interest calculated daily on remaining balance
+        // Interest rate is monthly (e.g., 4% per month), calculated using: Balance × Monthly Rate × (Days / 30)
         else {
             $principal_per_period = $principal / $periods;
+            $monthly_rate = $payload['loan_interest'] / 100; // Monthly rate as decimal (e.g., 0.04 for 4%)
+            
+            $period_start = clone $start;
+            
             for ($i = 0; $i < $periods; $i++) {
-                $interest = $balance * $rate;
+                // Calculate payment date for this period
+                $period_end = clone $period_start;
+                switch ($payload['repayment_frequency']) {
+                    case 'Weekly':
+                        $period_end->modify('+7 days');
+                        break;
+                    case 'Fortnightly':
+                        $period_end->modify('+14 days');
+                        break;
+                    default: // Monthly
+                        $period_end->modify('+1 month');
+                        break;
+                }
+                
+                // Calculate actual number of days in this period
+                $days_in_period = $period_start->diff($period_end)->days;
+                if ($days_in_period <= 0) {
+                    $days_in_period = 1; // Fallback to prevent division by zero
+                }
+                
+                // Calculate interest using the formula: Opening Balance × Monthly Rate × (Days / 30)
+                // This uses a standard 30-day month as the base, then adjusts for actual days in period
+                // Example: $10,000 × 0.04 × (31/30) = $413.33
+                // Example: $9,166.67 × 0.04 × (30/30) = $366.67
+                $interest = $balance * $monthly_rate * ($days_in_period / 30);
+                
                 $payment  = $principal_per_period + $interest;
                 $balance  = max(0, $balance - $principal_per_period);
 
-                $rows[] = $this->row($i, $start, $payload['repayment_frequency'], $payment, $principal_per_period, $interest, $balance);
+                $rows[] = $this->row_with_date($i, $period_start, $period_end, $payment, $principal_per_period, $interest, $balance);
+                
+                // Move to next period start
+                $period_start = clone $period_end;
             }
         }
 
@@ -848,6 +904,33 @@ final class EchoVault_Loan_Schedule_API {
             'principal' => round($principal, 2),
             'interest'  => round($interest, 2),
             'balance'   => round($balance, 2),
+        ];
+    }
+
+    /**
+     * Create a single schedule row with explicit start and end dates (for daily interest calculation).
+     * 
+     * @param int $index Zero-based period index
+     * @param DateTime $period_start Start date of this payment period
+     * @param DateTime $period_end End date of this payment period (payment due date)
+     * @param float $payment Total payment amount for this period
+     * @param float $principal Principal portion of payment
+     * @param float $interest Interest portion of payment
+     * @param float $balance Remaining balance after this payment
+     * @return array Schedule row with idx, date (ISO 8601), payment, principal, interest, balance, period_start, period_end, days
+     */
+    private function row_with_date(int $index, DateTime $period_start, DateTime $period_end, float $payment, float $principal, float $interest, float $balance): array {
+        $days = $period_start->diff($period_end)->days;
+        return [
+            'idx'           => $index + 1,
+            'date'          => $period_end->format('c'), // ISO 8601 format (payment due date)
+            'payment'       => round($payment, 2),
+            'principal'     => round($principal, 2),
+            'interest'      => round($interest, 2),
+            'balance'       => round($balance, 2),
+            'period_start'  => $period_start->format('Y-m-d'), // Store start date for exact matching
+            'period_end'    => $period_end->format('Y-m-d'), // Store end date for exact matching
+            'days'          => $days, // Store days for exact matching
         ];
     }
 
@@ -893,26 +976,35 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Calculate the interest rate per payment period from annual percentage rate.
+     * Calculate the interest rate per payment period from monthly interest rate.
      * 
-     * Converts annual interest rate to periodic rate:
-     * - Monthly: annual rate / 12
-     * - Fortnightly: annual rate / 26
-     * - Weekly: annual rate / 52
+     * IMPORTANT: The loan_interest field represents a MONTHLY interest rate (not annual).
+     * For example, 4% means 4% per month.
      * 
-     * @param float $annual_percent Annual interest rate as percentage (e.g., 5.5 for 5.5%)
+     * For Equal Principal Payment method, interest is calculated daily:
+     * - Daily rate = monthly_rate / days_in_period
+     * - Interest = balance * daily_rate * days_in_period
+     * 
+     * For other methods (Equal Total, Interest-Only), converts monthly rate to periodic rate:
+     * - Monthly: monthly rate (as-is)
+     * - Fortnightly: monthly rate * (12/26) = monthly rate * 0.4615
+     * - Weekly: monthly rate * (12/52) = monthly rate * 0.2308
+     * 
+     * @param float $monthly_percent Monthly interest rate as percentage (e.g., 4.0 for 4% per month)
      * @param string $frequency Payment frequency
-     * @return float Interest rate per period (as decimal, e.g., 0.00458 for 0.458%)
+     * @return float Interest rate per period (as decimal, e.g., 0.04 for 4%)
      */
-    private function rate_per_period(float $annual_percent, string $frequency): float {
-        $annual = $annual_percent / 100; // Convert percentage to decimal
+    private function rate_per_period(float $monthly_percent, string $frequency): float {
+        $monthly = $monthly_percent / 100; // Convert percentage to decimal
         switch ($frequency) {
             case 'Weekly':
-                return $annual / 52;
+                // Convert monthly rate to weekly: monthly * (12 months / 52 weeks)
+                return $monthly * (12 / 52);
             case 'Fortnightly':
-                return $annual / 26;
+                // Convert monthly rate to fortnightly: monthly * (12 months / 26 fortnights)
+                return $monthly * (12 / 26);
             default: // Monthly
-                return $annual / 12;
+                return $monthly; // Monthly rate as-is
         }
     }
 
@@ -2017,6 +2109,55 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
+     * Handle delete repayment schedule API request
+     */
+    public function handle_delete_schedule(WP_REST_Request $request): WP_REST_Response {
+        // Handle OPTIONS preflight
+        if ($request->get_method() === 'OPTIONS') {
+            return new WP_REST_Response(null, 200);
+        }
+
+        try {
+            $loan_id = intval($request->get_param('loan_id'));
+            if (!$loan_id || $loan_id <= 0) {
+                throw new WP_REST_Exception('invalid_loan_id', 'Loan ID is required and must be a positive number.', ['status' => 400]);
+            }
+
+            // Delete all schedules for this loan
+            $deleted = $this->delete_existing_schedule($loan_id);
+
+            $response = new WP_REST_Response(
+                [
+                    'success' => true,
+                    'message' => "Deleted $deleted repayment schedule row(s) for loan $loan_id",
+                    'deleted_count' => $deleted,
+                ],
+                200
+            );
+            
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
+        } catch (WP_REST_Exception $e) {
+            return new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                    'code' => $e->getErrorCode(),
+                ],
+                $e->getStatus()
+            );
+        } catch (Exception $e) {
+            return new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error' => 'Internal server error: ' . $e->getMessage(),
+                ],
+                500
+            );
+        }
+    }
+
+    /**
      * Handle get repayment schedule API request
      */
     public function handle_get_schedule(WP_REST_Request $request): WP_REST_Response {
@@ -2103,25 +2244,32 @@ final class EchoVault_Loan_Schedule_API {
         error_log("EchoVault: Generated " . count($theoretical_schedule) . " theoretical schedule rows for loan $loan_id");
 
         $start_date = new DateTime($loan_data['start_date']);
-        $annual_rate = $loan_data['loan_interest'] / 100;
+        $monthly_rate = $loan_data['loan_interest'] / 100; // Monthly rate as decimal (e.g., 0.04 for 4% per month)
         $frequency = $loan_data['repayment_frequency'];
         $count = 0;
         $current_balance = $loan_data['loan_amount'];
 
         foreach ($theoretical_schedule as $index => $row) {
-            $segment_start = $index === 0 
-                ? clone $start_date 
-                : $this->calculate_segment_start($start_date, $index, $frequency);
-            
-            $segment_end = $this->calculate_segment_end($segment_start, $frequency);
-            $loan_days = $segment_start->diff($segment_end)->days;
+            // Use the exact dates from build_schedule() to ensure perfect match
+            // This ensures the days calculation matches exactly what was used in the interest calculation
+            if (isset($row['period_start']) && isset($row['period_end'])) {
+                $segment_start = new DateTime($row['period_start']);
+                $segment_end = new DateTime($row['period_end']);
+                $loan_days = isset($row['days']) ? intval($row['days']) : $segment_start->diff($segment_end)->days;
+            } else {
+                // Fallback to recalculating (shouldn't happen, but safety net)
+                $segment_start = $index === 0 
+                    ? clone $start_date 
+                    : $this->calculate_segment_start($start_date, $index, $frequency);
+                $segment_end = $this->calculate_segment_end($segment_start, $frequency);
+                $loan_days = $segment_start->diff($segment_end)->days;
+            }
 
-            // Calculate accrued interest for this segment
-            $accrued_interest = $this->calculate_accrued_interest(
-                $current_balance,
-                $annual_rate,
-                $loan_days
-            );
+            // Use pre-calculated values from the schedule to ensure exact match
+            // These values are calculated in build_schedule() using the correct formula
+            $accrued_interest = floatval($row['interest']); // Interest amount for this period
+            $principal_payment = floatval($row['principal']); // Principal payment amount for this period
+            $remaining_balance = floatval($row['balance']); // Balance after principal payment
 
             // Insert directly into custom table
             $this->ensure_table_exists();
@@ -2136,12 +2284,12 @@ final class EchoVault_Loan_Schedule_API {
                     'segment_end' => $segment_end->format('Y-m-d'),
                     'loan_days' => $loan_days,
                     'start_balance' => round($current_balance, 2),
-                    'accrued_interest' => round($accrued_interest, 2),
-                    'paid_interest' => 0,
-                    'paid_principles' => 0,
-                    'total_payment' => 0,
-                    'outstanding_interest' => round($accrued_interest, 2),
-                    'remain_balance' => round($current_balance, 2),
+                    'accrued_interest' => round($accrued_interest, 2), // Pre-calculated interest for this period
+                    'paid_interest' => 0, // No payment made yet
+                    'paid_principles' => 0, // No payment made yet
+                    'total_payment' => 0, // No payment made yet
+                    'outstanding_interest' => 0.00, // Set to 0.00 for new loans (only calculated when overdue)
+                    'remain_balance' => round($remaining_balance, 2), // Balance after principal payment
                     'repayment_status' => 'Pending',
                     'repayment_note' => '',
                 ],
@@ -2154,11 +2302,11 @@ final class EchoVault_Loan_Schedule_API {
             }
             
             $segment_id = $wpdb->insert_id;
-            error_log("EchoVault: Successfully inserted segment $index (ID: $segment_id) for loan $loan_id into custom table");
+            error_log("EchoVault: Successfully inserted segment $index (ID: $segment_id) for loan $loan_id - Start: $current_balance, Interest: $accrued_interest, Principal: $principal_payment, Remaining: $remaining_balance");
                 $count++;
 
             // Update balance for next segment
-            $current_balance = $row['balance'];
+            $current_balance = $remaining_balance;
         }
 
         error_log("EchoVault: create_repayment_schedule completed for loan $loan_id - created $count segments");
@@ -2202,10 +2350,16 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Calculate accrued interest
+     * Calculate accrued interest using monthly rate
+     * Formula: Balance × Monthly Rate × (Days / 30)
+     * 
+     * @param float $balance Opening balance for the period
+     * @param float $monthly_rate Monthly interest rate as decimal (e.g., 0.04 for 4% per month)
+     * @param int $days Number of days in the period
+     * @return float Accrued interest amount
      */
-    private function calculate_accrued_interest(float $balance, float $annual_rate, int $days): float {
-        return $balance * $annual_rate * ($days / 365);
+    private function calculate_accrued_interest(float $balance, float $monthly_rate, int $days): float {
+        return $balance * $monthly_rate * ($days / 30);
     }
 
     /**
@@ -2296,9 +2450,9 @@ final class EchoVault_Loan_Schedule_API {
         $new_balance = floatval($paid_segment['remain_balance']);
         $segment_end = $paid_segment['segment_end'];
 
-        // Get loan interest rate from loan meta
+        // Get loan interest rate from loan meta (monthly rate, not annual)
         $loan_interest = floatval(get_post_meta($loan_id, 'loan_interest', true) ?: 0);
-        $annual_rate = $loan_interest / 100;
+        $monthly_rate = $loan_interest / 100; // Monthly rate as decimal (e.g., 0.04 for 4% per month)
 
         // Get all future segments (segment_start > paid_segment_end)
         $future_segments = $wpdb->get_results($wpdb->prepare(
@@ -2326,8 +2480,8 @@ final class EchoVault_Loan_Schedule_API {
             $segment_end = new DateTime($segment_end_str);
             $loan_days = $segment_start->diff($segment_end)->days;
 
-            // Recalculate accrued interest with new balance
-            $accrued_interest = $this->calculate_accrued_interest($current_balance, $annual_rate, $loan_days);
+            // Recalculate accrued interest with new balance using: Balance × Monthly Rate × (Days / 30)
+            $accrued_interest = $this->calculate_accrued_interest($current_balance, $monthly_rate, $loan_days);
 
             // Recalculate outstanding interest
             $paid_interest = floatval($segment['paid_interest'] ?: 0);
@@ -2454,3 +2608,159 @@ new EchoVault_Loan_Schedule_API();
         error_log('EchoVault: Failed to instantiate EchoVault_Loan_Schedule_API class');
     }
 }
+
+/**
+ * EchoVault client API - return borrower profile for current logged-in user
+ *
+ * This endpoint looks up the borrower (Pods \"Borrower\" / borrower-profile)
+ * whose email_address matches the current WordPress user's email. It is used
+ * by the client portal so each user only ever sees their own borrower profile.
+ *
+ * Route: GET /wp-json/echovault/v1/me/borrower
+ */
+add_action('rest_api_init', function () {
+    register_rest_route(
+        'echovault/v1',
+        '/me/borrower',
+        [
+            'methods'             => 'GET',
+            'callback'            => 'echovault_get_current_user_borrower',
+            // JWT authentication plugin will set the current user based on
+            // the Authorization header. We also allow manual JWT decoding
+            // in the callback, so no extra permission check here.
+            'permission_callback' => '__return_true',
+        ]
+    );
+});
+
+/**
+ * REST callback: return borrower profile linked to current user.
+ *
+ * Matching rule:
+ *   borrower.email_address === wp_users.user_email
+ *
+ * If no borrower is found, returns 404 so the frontend can show a clear message.
+ *
+ * @param WP_REST_Request $request
+ * @return WP_REST_Response
+ */
+function echovault_get_current_user_borrower( WP_REST_Request $request ) {
+    $email = '';
+
+    // 1) Try WordPress current user (works when logged in via cookies)
+    $user = wp_get_current_user();
+    if ( $user && ! empty( $user->user_email ) ) {
+        $email = strtolower( trim( $user->user_email ) );
+    }
+
+    // 2) If no email yet, try to decode JWT from Authorization header
+    if ( empty( $email ) ) {
+        $auth_header = $request->get_header( 'authorization' );
+        if ( $auth_header && stripos( $auth_header, 'bearer ' ) === 0 ) {
+            $token = trim( substr( $auth_header, 7 ) );
+            $parts = explode( '.', $token );
+            if ( count( $parts ) === 3 ) {
+                $payload = json_decode(
+                    base64_decode( strtr( $parts[1], '-_', '+/' ) ),
+                    true
+                );
+                if ( is_array( $payload ) ) {
+                    $possible_email =
+                        $payload['data']['user']['user_email'] ??
+                        $payload['data']['user_email'] ??
+                        $payload['user_email'] ??
+                        $payload['email'] ??
+                        '';
+                    if ( ! empty( $possible_email ) ) {
+                        $email = strtolower( trim( $possible_email ) );
+                    }
+                }
+            }
+        }
+    }
+
+    if ( empty( $email ) ) {
+        return new WP_REST_Response(
+            [
+                'success' => false,
+                'error'   => 'Unable to determine user email from session or token.',
+            ],
+            401
+        );
+    }
+
+    // Query borrower-profile posts by PODS field \"email_address\"
+    // Pods registers its fields as post meta with the same name.
+    $query = new WP_Query(
+        [
+            'post_type'      => 'borrower-profile',
+            'posts_per_page' => 1,
+            'post_status'    => [ 'publish', 'draft' ],
+            'meta_query'     => [
+                [
+                    'key'     => 'email_address',
+                    'value'   => $email,
+                    'compare' => '=',
+                ],
+            ],
+        ]
+    );
+
+    if ( ! $query->have_posts() ) {
+        // Nothing matched this email
+        return new WP_REST_Response(
+            [
+                'success' => false,
+                'error'   => 'No borrower profile found for this user.',
+            ],
+            404
+        );
+    }
+
+    $post = $query->posts[0];
+
+    // Build a simple payload with the same fields the frontend needs.
+    $data = [
+        'id'                => $post->ID,
+        'title'             => get_the_title( $post ),
+        'first_name'        => get_post_meta( $post->ID, 'first_name', true ),
+        'last_name'         => get_post_meta( $post->ID, 'last_name', true ),
+        'email_address'     => get_post_meta( $post->ID, 'email_address', true ),
+        'borrower_id'       => get_post_meta( $post->ID, 'borrower_id', true ),
+        'date_of_birth'     => get_post_meta( $post->ID, 'date_of_birth', true ),
+        'mobile_number'     => get_post_meta( $post->ID, 'mobile_number', true ),
+        'registration_number' => get_post_meta( $post->ID, 'registration_number', true ),
+        'home_address'      => get_post_meta( $post->ID, 'home_address', true ),
+        'social_link_1'     => get_post_meta( $post->ID, 'social_link_1', true ),
+        'social_link_2'     => get_post_meta( $post->ID, 'social_link_2', true ),
+        'visa_type'         => get_post_meta( $post->ID, 'visa_type', true ),
+        'visa_expiry_date'  => get_post_meta( $post->ID, 'visa_expiry_date', true ),
+        'employment_status' => get_post_meta( $post->ID, 'employment_status', true ),
+        'work_rights'       => get_post_meta( $post->ID, 'work_rights', true ),
+        'employer_name'     => get_post_meta( $post->ID, 'employer_name', true ),
+        'job_title'         => get_post_meta( $post->ID, 'job_title', true ),
+        'monthly_income_aud' => get_post_meta( $post->ID, 'monthly_income_aud', true ),
+        'employment_start_date' => get_post_meta( $post->ID, 'employment_start_date', true ),
+        'employer_phone'    => get_post_meta( $post->ID, 'employer_phone', true ),
+        'employer_email'    => get_post_meta( $post->ID, 'employer_email', true ),
+        'employer_address'  => get_post_meta( $post->ID, 'employer_address', true ),
+        'marital_status'    => get_post_meta( $post->ID, 'marital_status', true ),
+        'family_relationship' => get_post_meta( $post->ID, 'family_relationship', true ),
+        'family_member_full_name' => get_post_meta( $post->ID, 'family_member_full_name', true ),
+        'family_member_phone' => get_post_meta( $post->ID, 'family_member_phone', true ),
+        'family_member_email' => get_post_meta( $post->ID, 'family_member_email', true ),
+        'bank_name'         => get_post_meta( $post->ID, 'bank_name', true ),
+        'account_name'      => get_post_meta( $post->ID, 'account_name', true ),
+        'bsb_number'        => get_post_meta( $post->ID, 'bsb_number', true ),
+        'account_number'    => get_post_meta( $post->ID, 'account_number', true ),
+    ];
+
+    return new WP_REST_Response(
+        [
+            'success'  => true,
+            'borrower' => $data,
+        ],
+        200
+    );
+}
+
