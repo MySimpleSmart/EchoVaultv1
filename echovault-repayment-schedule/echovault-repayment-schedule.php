@@ -2552,7 +2552,7 @@ final class EchoVault_Loan_Schedule_API {
                     'total_payment' => 0, // No payment made yet (this is the paid total)
                     'outstanding_interest' => 0.00, // Set to 0.00 for new loans (only calculated when overdue)
                     'remain_balance' => round($remaining_balance, 2), // Balance after principal payment
-                    'repayment_status' => 'Pending',
+                    'repayment_status' => $this->calculate_initial_status($segment_end),
                     'repayment_note' => '',
                 ],
                 ['%d', '%s', '%s', '%d', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%s', '%s']
@@ -2703,28 +2703,57 @@ final class EchoVault_Loan_Schedule_API {
             $scheduled_principal = max(0, $scheduled_total_payment - $accrued_interest);
         }
 
-        // SIMPLE LOGIC: Status is "Paid" ONLY if total_payment >= scheduled_total_payment
-        // Otherwise, status is "Pending" (frontend will show "Overdue" if due date passed)
+        // Determine status based on payment and due date
+        // 4 possible statuses: Pending, Overdue, Paid, Paid (overdue)
         $repayment_status = 'Pending';
+        
+        // Check if due date has passed
+        $due_date_str = $segment['segment_end'];
+        $is_due_date_passed = false;
+        if ($due_date_str) {
+            try {
+                $due_date = new DateTime($due_date_str);
+                $today = new DateTime();
+                $today->setTime(0, 0, 0, 0);
+                $due_date->setTime(0, 0, 0, 0);
+                $is_due_date_passed = $due_date < $today;
+            } catch (Exception $e) {
+                // If date parsing fails, assume not overdue
+                error_log("EchoVault: Failed to parse due date for segment $segment_id: " . $e->getMessage());
+            }
+        }
         
         // Round both values to 2 decimal places for consistent comparison
         $rounded_total_payment = round($total_payment, 2);
         $rounded_scheduled_total = round($scheduled_total_payment, 2);
         
+        // Check if payment has been made
+        $has_payment = false;
         if ($rounded_total_payment > 0 && $rounded_scheduled_total > 0) {
             // Check if total payment covers scheduled total payment (with tolerance for rounding errors)
             // Use >= comparison with small tolerance to account for floating point precision
-            // Increased tolerance from 0.01 to 0.02 to handle rounding better
             if ($rounded_total_payment >= ($rounded_scheduled_total - 0.02)) {
-                $repayment_status = 'Paid';
-                error_log("EchoVault: Segment $segment_id marked as Paid - total_payment: $rounded_total_payment >= scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $accrued_interest, principal: $scheduled_principal)");
+                $has_payment = true;
+            }
+        }
+        
+        // Determine status based on payment and due date
+        if ($has_payment) {
+            if ($is_due_date_passed) {
+                $repayment_status = 'Paid (overdue)';
+                error_log("EchoVault: Segment $segment_id marked as Paid (overdue) - total_payment: $rounded_total_payment >= scheduled_total: $rounded_scheduled_total, due date passed");
             } else {
-                // Payment made but not full - keep as "Pending" (frontend will show "Overdue" if due date passed)
-                $repayment_status = 'Pending';
-                error_log("EchoVault: Segment $segment_id remains Pending - total_payment: $rounded_total_payment < scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $new_paid_interest / $accrued_interest, principal: $new_paid_principles / $scheduled_principal)");
+                $repayment_status = 'Paid';
+                error_log("EchoVault: Segment $segment_id marked as Paid - total_payment: $rounded_total_payment >= scheduled_total: $rounded_scheduled_total");
             }
         } else {
-            error_log("EchoVault: Segment $segment_id remains Pending - no payment made (total_payment: $rounded_total_payment, scheduled_total: $rounded_scheduled_total)");
+            if ($is_due_date_passed) {
+                $repayment_status = 'Overdue';
+                error_log("EchoVault: Segment $segment_id marked as Overdue - no payment made, due date passed");
+            } else {
+                $repayment_status = 'Pending';
+                error_log("EchoVault: Segment $segment_id remains Pending - no payment made (total_payment: $rounded_total_payment, scheduled_total: $rounded_scheduled_total)");
+            }
         }
 
         // Update paid_date: set it when payment is registered, or keep existing if already set
@@ -2844,28 +2873,57 @@ final class EchoVault_Loan_Schedule_API {
             $scheduled_principal = max(0, $scheduled_total_payment - $accrued_interest);
         }
         
-        // SIMPLE LOGIC: Status is "Paid" ONLY if new_total_payment >= scheduled_total_payment
-        // Otherwise, status is "Pending" (frontend will show "Overdue" if due date passed)
+        // Determine status based on payment and due date
+        // 4 possible statuses: Pending, Overdue, Paid, Paid (overdue)
         $repayment_status = 'Pending';
+        
+        // Check if due date has passed
+        $due_date_str = $segment['segment_end'];
+        $is_due_date_passed = false;
+        if ($due_date_str) {
+            try {
+                $due_date = new DateTime($due_date_str);
+                $today = new DateTime();
+                $today->setTime(0, 0, 0, 0);
+                $due_date->setTime(0, 0, 0, 0);
+                $is_due_date_passed = $due_date < $today;
+            } catch (Exception $e) {
+                // If date parsing fails, assume not overdue
+                error_log("EchoVault: Failed to parse due date for segment $segment_id: " . $e->getMessage());
+            }
+        }
         
         // Round both values to 2 decimal places for consistent comparison
         $rounded_new_total_payment = round($new_total_payment, 2);
         $rounded_scheduled_total = round($scheduled_total_payment, 2);
         
+        // Check if payment has been made
+        $has_payment = false;
         if ($rounded_new_total_payment > 0 && $rounded_scheduled_total > 0) {
             // Check if total payment covers scheduled total payment (with tolerance for rounding errors)
             // Use >= comparison with small tolerance to account for floating point precision
-            // Increased tolerance from 0.01 to 0.02 to handle rounding better
             if ($rounded_new_total_payment >= ($rounded_scheduled_total - 0.02)) {
-                $repayment_status = 'Paid';
-                error_log("EchoVault: Segment $segment_id marked as Paid - new_total_payment: $rounded_new_total_payment >= scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $accrued_interest, principal: $scheduled_principal)");
+                $has_payment = true;
+            }
+        }
+        
+        // Determine status based on payment and due date
+        if ($has_payment) {
+            if ($is_due_date_passed) {
+                $repayment_status = 'Paid (overdue)';
+                error_log("EchoVault: Segment $segment_id marked as Paid (overdue) - new_total_payment: $rounded_new_total_payment >= scheduled_total: $rounded_scheduled_total, due date passed");
             } else {
-                // Payment made but not full - keep as "Pending" (frontend will show "Overdue" if due date passed)
-                $repayment_status = 'Pending';
-                error_log("EchoVault: Segment $segment_id remains Pending - new_total_payment: $rounded_new_total_payment < scheduled_total: $rounded_scheduled_total (scheduled_total_payment from DB: " . floatval($segment['scheduled_total_payment']) . ", interest: $new_paid_interest / $accrued_interest, principal: $new_paid_principles / $scheduled_principal)");
+                $repayment_status = 'Paid';
+                error_log("EchoVault: Segment $segment_id marked as Paid - new_total_payment: $rounded_new_total_payment >= scheduled_total: $rounded_scheduled_total");
             }
         } else {
-            error_log("EchoVault: Segment $segment_id remains Pending - no payment made (new_total_payment: $rounded_new_total_payment, scheduled_total: $rounded_scheduled_total)");
+            if ($is_due_date_passed) {
+                $repayment_status = 'Overdue';
+                error_log("EchoVault: Segment $segment_id marked as Overdue - no payment made, due date passed");
+            } else {
+                $repayment_status = 'Pending';
+                error_log("EchoVault: Segment $segment_id remains Pending - no payment made (new_total_payment: $rounded_new_total_payment, scheduled_total: $rounded_scheduled_total)");
+            }
         }
         
         // Update paid_date: set it when payment is registered, or keep existing if already set
@@ -2997,6 +3055,74 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
+     * Calculate initial status for a new segment based on due date
+     * Returns 'Pending' or 'Overdue' (for new segments, payment is always 0)
+     */
+    private function calculate_initial_status(DateTime $segment_end): string {
+        try {
+            $today = new DateTime();
+            $today->setTime(0, 0, 0, 0);
+            $segment_end->setTime(0, 0, 0, 0);
+            return ($segment_end < $today) ? 'Overdue' : 'Pending';
+        } catch (Exception $e) {
+            return 'Pending';
+        }
+    }
+
+    /**
+     * Update repayment status based on payment and due date
+     * Returns one of: Pending, Overdue, Paid, Paid (overdue)
+     */
+    private function calculate_repayment_status(array $segment): string {
+        $total_payment = floatval($segment['total_payment'] ?: 0);
+        $scheduled_total_payment = floatval($segment['scheduled_total_payment'] ?: 0);
+        
+        // Calculate scheduled_total_payment if not in database
+        if ($scheduled_total_payment <= 0) {
+            $accrued_interest = floatval($segment['accrued_interest'] ?: 0);
+            $scheduled_principal = floatval($segment['scheduled_principal'] ?: 0);
+            if ($scheduled_principal <= 0) {
+                $scheduled_principal = max(0, floatval($segment['start_balance'] ?: 0) - floatval($segment['remain_balance'] ?: 0));
+            }
+            $scheduled_total_payment = $accrued_interest + $scheduled_principal;
+        }
+        
+        // Check if due date has passed
+        $due_date_str = $segment['segment_end'] ?? null;
+        $is_due_date_passed = false;
+        if ($due_date_str) {
+            try {
+                $due_date = new DateTime($due_date_str);
+                $today = new DateTime();
+                $today->setTime(0, 0, 0, 0);
+                $due_date->setTime(0, 0, 0, 0);
+                $is_due_date_passed = $due_date < $today;
+            } catch (Exception $e) {
+                // If date parsing fails, assume not overdue
+            }
+        }
+        
+        // Round both values to 2 decimal places for consistent comparison
+        $rounded_total_payment = round($total_payment, 2);
+        $rounded_scheduled_total = round($scheduled_total_payment, 2);
+        
+        // Check if payment has been made
+        $has_payment = false;
+        if ($rounded_total_payment > 0 && $rounded_scheduled_total > 0) {
+            if ($rounded_total_payment >= ($rounded_scheduled_total - 0.02)) {
+                $has_payment = true;
+            }
+        }
+        
+        // Determine status based on payment and due date
+        if ($has_payment) {
+            return $is_due_date_passed ? 'Paid (overdue)' : 'Paid';
+        } else {
+            return $is_due_date_passed ? 'Overdue' : 'Pending';
+        }
+    }
+
+    /**
      * Get repayment schedule data for a loan
      */
     private function get_repayment_schedule_data(int $loan_id): array {
@@ -3014,6 +3140,21 @@ final class EchoVault_Loan_Schedule_API {
         
         $schedule = [];
         foreach ($rows as $row) {
+            // Update status if needed based on current date
+            $calculated_status = $this->calculate_repayment_status($row);
+            $current_status = $row['repayment_status'] ?? 'Pending';
+            
+            // Update status in database if it has changed (to catch overdue segments)
+            if ($calculated_status !== $current_status) {
+                $wpdb->update(
+                    $table_name,
+                    ['repayment_status' => $calculated_status],
+                    ['id' => $row['id']],
+                    ['%s'],
+                    ['%d']
+                );
+                $row['repayment_status'] = $calculated_status;
+            }
             // Calculate scheduled_principal if not in database (for backward compatibility)
             $scheduled_principal = isset($row['scheduled_principal']) && $row['scheduled_principal'] > 0
                 ? (float)$row['scheduled_principal']
@@ -3040,7 +3181,7 @@ final class EchoVault_Loan_Schedule_API {
                 'total_payment' => (float)$row['total_payment'],
                 'outstanding_interest' => (float)$row['outstanding_interest'],
                 'remain_balance' => (float)$row['remain_balance'],
-                'repayment_status' => (string)$row['repayment_status'],
+                'repayment_status' => $calculated_status, // Use calculated status (may have been updated)
                 'repayment_note' => (string)$row['repayment_note'],
             ];
         }
