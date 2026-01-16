@@ -17,6 +17,7 @@ if (!defined('ABSPATH')) {
 register_activation_hook(__FILE__, static function () {
     global $wpdb;
     $table_name     = $wpdb->prefix . 'echovault_repayment_schedule';
+    $payment_history_table = $wpdb->prefix . 'echovault_payment_history';
     $charset_collate = $wpdb->get_charset_collate();
 
     $sql = "CREATE TABLE IF NOT EXISTS $table_name (
@@ -47,6 +48,34 @@ register_activation_hook(__FILE__, static function () {
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
+    
+    // Create payment history table
+    $payment_history_sql = "CREATE TABLE IF NOT EXISTS $payment_history_table (
+        id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        loan_id bigint(20) UNSIGNED NOT NULL,
+        segment_id bigint(20) UNSIGNED NOT NULL,
+        segment_start date NOT NULL,
+        segment_end date NOT NULL,
+        payment_date date NOT NULL,
+        loan_days int(11) NOT NULL DEFAULT 0,
+        paid_loan_days int(11) NOT NULL DEFAULT 0,
+        paid_interest decimal(15,2) NOT NULL DEFAULT 0.00,
+        paid_principal decimal(15,2) NOT NULL DEFAULT 0.00,
+        total_payment decimal(15,2) NOT NULL DEFAULT 0.00,
+        balance_before decimal(15,2) NOT NULL DEFAULT 0.00,
+        balance_after decimal(15,2) NOT NULL DEFAULT 0.00,
+        outstanding_interest_before decimal(15,2) NOT NULL DEFAULT 0.00,
+        outstanding_interest_after decimal(15,2) NOT NULL DEFAULT 0.00,
+        note text,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY loan_id (loan_id),
+        KEY segment_id (segment_id),
+        KEY payment_date (payment_date),
+        KEY segment_start (segment_start)
+    ) $charset_collate;";
+    
+    dbDelta($payment_history_sql);
 });
 
 final class EchoVault_Loan_Schedule_API {
@@ -57,6 +86,7 @@ final class EchoVault_Loan_Schedule_API {
     private const REGISTER_PAYMENT_ROUTE  = '/register-payment';
     private const GET_SCHEDULE_ROUTE      = '/get-repayment-schedule';
     private const DELETE_SCHEDULE_ROUTE   = '/delete-repayment-schedule';
+    private const GET_PAYMENT_HISTORY_ROUTE = '/get-payment-history';
     private const REPAYMENT_SCHEDULE_POST_TYPE = 'repayment_schedule';
     
     /**
@@ -65,6 +95,57 @@ final class EchoVault_Loan_Schedule_API {
     private function get_table_name(): string {
         global $wpdb;
         return $wpdb->prefix . 'echovault_repayment_schedule';
+    }
+    
+    /**
+     * Get the payment history table name
+     */
+    private function get_payment_history_table_name(): string {
+        global $wpdb;
+        return $wpdb->prefix . 'echovault_payment_history';
+    }
+    
+    /**
+     * Ensure payment history table exists
+     */
+    private function ensure_payment_history_table_exists(): void {
+        global $wpdb;
+        $table_name = $this->get_payment_history_table_name();
+
+        // Quick existence check
+        $exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name));
+        if ($exists === $table_name) {
+            return;
+        }
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            loan_id bigint(20) UNSIGNED NOT NULL,
+            segment_id bigint(20) UNSIGNED NOT NULL,
+            segment_start date NOT NULL,
+            segment_end date NOT NULL,
+            payment_date date NOT NULL,
+            loan_days int(11) NOT NULL DEFAULT 0,
+            paid_loan_days int(11) NOT NULL DEFAULT 0,
+            paid_interest decimal(15,2) NOT NULL DEFAULT 0.00,
+            paid_principal decimal(15,2) NOT NULL DEFAULT 0.00,
+            total_payment decimal(15,2) NOT NULL DEFAULT 0.00,
+            balance_before decimal(15,2) NOT NULL DEFAULT 0.00,
+            balance_after decimal(15,2) NOT NULL DEFAULT 0.00,
+            outstanding_interest_before decimal(15,2) NOT NULL DEFAULT 0.00,
+            outstanding_interest_after decimal(15,2) NOT NULL DEFAULT 0.00,
+            note text,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY loan_id (loan_id),
+            KEY segment_id (segment_id),
+            KEY payment_date (payment_date),
+            KEY segment_start (segment_start)
+        ) $charset_collate;";
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta($sql);
     }
 
     public function __construct() {
@@ -672,6 +753,17 @@ final class EchoVault_Loan_Schedule_API {
             [
                 'methods'             => ['GET', 'POST'],
                 'callback'            => [$this, 'handle_force_generate'],
+                'permission_callback' => '__return_true',
+            ]
+        );
+        
+        // Get payment history endpoint
+        register_rest_route(
+            self::ROUTE_NAMESPACE,
+            self::GET_PAYMENT_HISTORY_ROUTE,
+            [
+                'methods'             => ['GET', 'POST', 'OPTIONS'],
+                'callback'            => [$this, 'handle_get_payment_history'],
                 'permission_callback' => '__return_true',
             ]
         );
@@ -2043,9 +2135,8 @@ final class EchoVault_Loan_Schedule_API {
         try {
             $loan_id = intval($request->get_param('loan_id'));
             $segment_id = intval($request->get_param('segment_id'));
-            $paid_interest = $request->get_param('paid_interest');
-            $paid_principles = $request->get_param('paid_principles');
-            $total_payment = $request->get_param('total_payment');
+            $paid_interest = floatval($request->get_param('paid_interest') ?: 0);
+            $paid_principles = floatval($request->get_param('paid_principles') ?: 0);
             $payment_date = sanitize_text_field($request->get_param('payment_date') ?: date('Y-m-d'));
             $repayment_note = sanitize_text_field($request->get_param('repayment_note') ?: '');
 
@@ -2053,23 +2144,139 @@ final class EchoVault_Loan_Schedule_API {
                 throw new WP_REST_Exception('invalid_params', 'Loan ID and Segment ID are required.', ['status' => 400]);
             }
 
-            // If total_payment is provided, calculate interest and principal split
-            // Otherwise use provided paid_interest and paid_principles (default to 0)
-            if ($total_payment !== null && $total_payment !== '' && floatval($total_payment) > 0) {
-                $total_payment_val = floatval($total_payment);
-                error_log("EchoVault: Registering payment for loan $loan_id, segment $segment_id - total payment: $total_payment_val (will calculate split)");
-                // Calculate split: pay interest first, then principal
-                $this->update_payment_segment_from_total($segment_id, $total_payment_val, $payment_date, $repayment_note);
-            } else {
-                $paid_interest = floatval($paid_interest ?: 0);
-                $paid_principles = floatval($paid_principles ?: 0);
-                error_log("EchoVault: Registering payment for loan $loan_id, segment $segment_id - interest: $paid_interest, principal: $paid_principles");
-                // Update the segment
-                $this->update_payment_segment($segment_id, $paid_interest, $paid_principles, $payment_date, $repayment_note, null);
+            if (!$payment_date) {
+                throw new WP_REST_Exception('invalid_params', 'Payment date is required.', ['status' => 400]);
             }
 
-            // Recalculate all future segments
-            $this->recalculate_future_segments($loan_id, $segment_id);
+            if ($paid_interest < 0 || $paid_principles < 0) {
+                throw new WP_REST_Exception('invalid_params', 'Payment amounts cannot be negative.', ['status' => 400]);
+            }
+
+            if ($paid_interest == 0 && $paid_principles == 0) {
+                throw new WP_REST_Exception('invalid_params', 'At least one payment (interest or principal) must be provided.', ['status' => 400]);
+            }
+            
+            // Validate interest payment does not exceed accrued interest
+            if ($paid_interest > 0) {
+                // Get segment data to calculate maximum allowed interest
+                $this->ensure_table_exists();
+                global $wpdb;
+                $table_name = $this->get_table_name();
+                $segment = $wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM $table_name WHERE id = %d",
+                    $segment_id
+                ), ARRAY_A);
+                
+                if ($segment) {
+                    $segment_start = $segment['segment_start'] ?: '';
+                    $start_balance = floatval($segment['start_balance'] ?: 0);
+                    $outstanding_interest = floatval($segment['outstanding_interest'] ?: 0);
+                    
+                    // Calculate maximum interest: interest from segment_start to payment_date + outstanding interest
+                    $max_interest = 0;
+                    if ($segment_start && $payment_date && $start_balance > 0) {
+                        try {
+                            $loan_interest = floatval(get_post_meta($loan_id, 'loan_interest', true) ?: 0);
+                            $monthly_rate = $loan_interest / 100;
+                            
+                            $start_date = new DateTime($segment_start);
+                            $payment_date_obj = new DateTime($payment_date);
+                            $days_diff = max(0, $start_date->diff($payment_date_obj)->days);
+                            
+                            // Calculate interest: Balance × Monthly Rate × (Days / 30)
+                            $calculated_interest = $start_balance * $monthly_rate * ($days_diff / 30);
+                            $max_interest = $calculated_interest + $outstanding_interest;
+                        } catch (Exception $e) {
+                            // Fallback: use accrued interest from segment
+                            $accrued_interest = floatval($segment['accrued_interest'] ?: 0);
+                            $max_interest = $accrued_interest + $outstanding_interest;
+                        }
+                    } else {
+                        // Fallback: use accrued interest from segment
+                        $accrued_interest = floatval($segment['accrued_interest'] ?: 0);
+                        $max_interest = $accrued_interest + $outstanding_interest;
+                    }
+                    
+                    // Round to 2 decimal places for comparison
+                    $max_interest = round($max_interest, 2);
+                    $paid_interest_rounded = round($paid_interest, 2);
+                    
+                    if ($paid_interest_rounded > $max_interest) {
+                        throw new WP_REST_Exception('invalid_params', "Interest payment ({$paid_interest_rounded}) cannot exceed the accrued interest amount ({$max_interest}).", ['status' => 400]);
+                    }
+                }
+            }
+
+            error_log("EchoVault: Registering payment for loan $loan_id, segment $segment_id - interest: $paid_interest, principal: $paid_principles, date: $payment_date");
+            
+            // Get balance before payment for history
+            $this->ensure_table_exists();
+            global $wpdb;
+            $table_name = $this->get_table_name();
+            $segment_before = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $table_name WHERE id = %d",
+                $segment_id
+            ), ARRAY_A);
+            
+            $balance_before = floatval($segment_before['remain_balance'] ?: 0);
+            $outstanding_interest_before = floatval($segment_before['outstanding_interest'] ?: 0);
+            $segment_start = isset($segment_before['segment_start']) && !empty($segment_before['segment_start']) ? (string)$segment_before['segment_start'] : '';
+            $segment_end = isset($segment_before['segment_end']) && !empty($segment_before['segment_end']) ? (string)$segment_before['segment_end'] : '';
+            $loan_days = isset($segment_before['loan_days']) ? intval($segment_before['loan_days']) : 0;
+            
+            // Debug logging
+            if (empty($segment_start) || empty($segment_end)) {
+                error_log("EchoVault: Warning - segment_start or segment_end is empty for segment $segment_id. segment_start: " . ($segment_start ?: 'empty') . ", segment_end: " . ($segment_end ?: 'empty'));
+            }
+            
+            // Calculate paid loan days: from segment_start to payment_date
+            $paid_loan_days = 0;
+            if ($segment_start && $payment_date) {
+                try {
+                    $start_date = new DateTime($segment_start);
+                    $payment_date_obj = new DateTime($payment_date);
+                    $diff = $start_date->diff($payment_date_obj);
+                    $paid_loan_days = max(0, $diff->days);
+                } catch (Exception $e) {
+                    error_log("EchoVault: Error calculating paid_loan_days: " . $e->getMessage());
+                }
+            }
+            
+            // Update the segment with separate interest and principal payments
+            $this->update_payment_segment_with_date($segment_id, $paid_interest, $paid_principles, $payment_date, $repayment_note);
+
+            // Recalculate all future segments based on payment date and new balance
+            // This is important for non-scheduled payments that change the balance
+            $this->recalculate_future_segments_from_payment($loan_id, $segment_id, $payment_date);
+
+            // Get balance after payment for history
+            $segment_after = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $table_name WHERE id = %d",
+                $segment_id
+            ), ARRAY_A);
+            
+            $balance_after = floatval($segment_after['remain_balance'] ?: 0);
+            $outstanding_interest_after = floatval($segment_after['outstanding_interest'] ?: 0);
+            $total_payment = floatval($paid_interest) + floatval($paid_principles);
+            
+            // Save payment transaction to history
+            $this->save_payment_history(
+                $loan_id,
+                $segment_id,
+                $segment_start,
+                $segment_end,
+                $payment_date,
+                $loan_days,
+                $paid_loan_days,
+                floatval($paid_interest),
+                floatval($paid_principles),
+                $total_payment,
+                $balance_before,
+                $balance_after,
+                $outstanding_interest_before,
+                $outstanding_interest_after,
+                $repayment_note
+            );
 
             // Return updated schedule
             $schedule = $this->get_repayment_schedule_data($loan_id);
@@ -2550,7 +2757,7 @@ final class EchoVault_Loan_Schedule_API {
                     'paid_interest' => 0, // No payment made yet
                     'paid_principles' => 0, // No payment made yet
                     'total_payment' => 0, // No payment made yet (this is the paid total)
-                    'outstanding_interest' => 0.00, // Set to 0.00 for new loans (only calculated when overdue)
+                    'outstanding_interest' => 0.00, // Set to 0.00 for new loans (only calculated when payment is made)
                     'remain_balance' => round($remaining_balance, 2), // Balance after principal payment
                     'repayment_status' => $this->calculate_initial_status($segment_end),
                     'repayment_note' => '',
@@ -2625,7 +2832,100 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Update payment segment
+     * Update payment segment with payment date-based interest calculation
+     * Interest is calculated based on actual days outstanding up to payment date
+     * Outstanding interest accumulates from previous segments
+     */
+    private function update_payment_segment_with_date(int $segment_id, float $paid_interest, float $paid_principles, string $payment_date, string $note): void {
+        $this->ensure_table_exists();
+        global $wpdb;
+        $table_name = $this->get_table_name();
+        
+        // Get current segment data
+        $segment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE id = %d",
+            $segment_id
+        ), ARRAY_A);
+        
+        if (!$segment) {
+            throw new WP_REST_Exception('segment_not_found', 'Repayment segment not found.', ['status' => 404]);
+        }
+
+        $loan_id = intval($segment['related_loan']);
+        $start_balance = floatval($segment['start_balance']);
+        
+        // Get existing payments (accumulate)
+        $existing_paid_interest = floatval($segment['paid_interest'] ?: 0);
+        $existing_paid_principles = floatval($segment['paid_principles'] ?: 0);
+        $existing_outstanding_interest = floatval($segment['outstanding_interest'] ?: 0);
+        
+        // Add new payments to existing
+        $new_paid_interest = $existing_paid_interest + $paid_interest;
+        $new_paid_principles = $existing_paid_principles + $paid_principles;
+        
+        // Calculate outstanding interest: ONLY recorded when payment is made but less than interest due
+        // Outstanding Interest = 0 if no payment made, or if payment covers all interest
+        // Outstanding Interest = (Total Interest Owed - Paid Interest) if payment made but insufficient
+        $segment_accrued_interest = floatval($segment['accrued_interest'] ?: 0);
+        
+        // Total interest owed = outstanding from previous + segment accrued
+        $total_interest_owed = $existing_outstanding_interest + $segment_accrued_interest;
+        
+        // Outstanding interest calculation:
+        // - If no interest payment made: outstanding = 0
+        // - If payment made but less than total owed: outstanding = total_owed - paid
+        // - If payment covers all interest: outstanding = 0
+        if ($new_paid_interest > 0 && $new_paid_interest < $total_interest_owed) {
+            // Payment was made but is less than total interest owed
+            $outstanding_interest = round($total_interest_owed - $new_paid_interest, 2);
+        } else if ($new_paid_interest >= $total_interest_owed && $total_interest_owed > 0) {
+            // Payment covers all interest (or overpays) - no outstanding
+            $outstanding_interest = 0;
+        } else {
+            // No interest payment made - no outstanding
+            $outstanding_interest = 0;
+        }
+        
+        // Calculate remaining balance after principal payment
+        $remain_balance = max(0, $start_balance - $new_paid_principles);
+        
+        // Calculate total payment (sum of all interest and principal payments)
+        $total_payment = $new_paid_interest + $new_paid_principles;
+        
+        // Determine status: If any payment made, consider it paid (simplified logic)
+        $repayment_status = ($total_payment > 0) ? 'Paid' : 'Pending';
+        
+        // Update paid_date to the payment date when payment is registered
+        $update_paid_date = ($total_payment > 0 && !empty($payment_date)) ? $payment_date : ($segment['paid_date'] ?: null);
+        
+        // Update custom table
+        $result = $wpdb->update(
+            $table_name,
+            [
+                'paid_interest' => round($new_paid_interest, 2),
+                'paid_principles' => round($new_paid_principles, 2),
+                'total_payment' => round($total_payment, 2),
+                'outstanding_interest' => round($outstanding_interest, 2),
+                'remain_balance' => round($remain_balance, 2),
+                'repayment_status' => $repayment_status,
+                'paid_date' => $update_paid_date,
+                'repayment_note' => $note,
+            ],
+            ['id' => $segment_id],
+            ['%f', '%f', '%f', '%f', '%f', '%s', '%s', '%s'],
+            ['%d']
+        );
+        
+        if ($result === false) {
+            error_log("EchoVault: Failed to update segment $segment_id: " . $wpdb->last_error);
+            throw new Exception('Failed to update payment segment');
+        }
+        
+        error_log("EchoVault: Updated segment $segment_id - paid interest: $new_paid_interest, paid principal: $new_paid_principles, outstanding interest: $outstanding_interest, status: $repayment_status");
+    }
+
+    /**
+     * Update payment segment (legacy method, kept for backward compatibility)
      */
     private function update_payment_segment(int $segment_id, float $paid_interest, float $paid_principles, string $payment_date, string $note, ?float $total_payment = null): void {
         $this->ensure_table_exists();
@@ -2703,25 +3003,9 @@ final class EchoVault_Loan_Schedule_API {
             $scheduled_principal = max(0, $scheduled_total_payment - $accrued_interest);
         }
 
-        // Determine status based on payment and due date
-        // 4 possible statuses: Pending, Overdue, Paid, Paid (overdue)
+        // Determine status based on payment only
+        // 2 possible statuses: Pending, Paid
         $repayment_status = 'Pending';
-        
-        // Check if due date has passed
-        $due_date_str = $segment['segment_end'];
-        $is_due_date_passed = false;
-        if ($due_date_str) {
-            try {
-                $due_date = new DateTime($due_date_str);
-                $today = new DateTime();
-                $today->setTime(0, 0, 0, 0);
-                $due_date->setTime(0, 0, 0, 0);
-                $is_due_date_passed = $due_date < $today;
-            } catch (Exception $e) {
-                // If date parsing fails, assume not overdue
-                error_log("EchoVault: Failed to parse due date for segment $segment_id: " . $e->getMessage());
-            }
-        }
         
         // Round both values to 2 decimal places for consistent comparison
         $rounded_total_payment = round($total_payment, 2);
@@ -2737,41 +3021,17 @@ final class EchoVault_Loan_Schedule_API {
             }
         }
         
-        // Determine status based on payment and due date
+        // Determine status based on payment only
         if ($has_payment) {
-            if ($is_due_date_passed) {
-                $repayment_status = 'Paid (overdue)';
-                error_log("EchoVault: Segment $segment_id marked as Paid (overdue) - total_payment: $rounded_total_payment >= scheduled_total: $rounded_scheduled_total, due date passed");
-            } else {
                 $repayment_status = 'Paid';
                 error_log("EchoVault: Segment $segment_id marked as Paid - total_payment: $rounded_total_payment >= scheduled_total: $rounded_scheduled_total");
-            }
-        } else {
-            if ($is_due_date_passed) {
-                $repayment_status = 'Overdue';
-                error_log("EchoVault: Segment $segment_id marked as Overdue - no payment made, due date passed");
             } else {
                 $repayment_status = 'Pending';
                 error_log("EchoVault: Segment $segment_id remains Pending - no payment made (total_payment: $rounded_total_payment, scheduled_total: $rounded_scheduled_total)");
-            }
         }
 
-        // Update paid_date: set it when payment is registered, or keep existing if already set
-        // Set paid_date if payment is being made (total_payment > 0) and no date is already recorded
-        $update_paid_date = null;
-        if ($total_payment > 0) {
-            // If payment is being made, set the paid_date
-            // Use provided payment_date or current date, unless a paid_date already exists
-            if (empty($segment['paid_date'])) {
-                $update_paid_date = $payment_date ?: date('Y-m-d');
-            } else {
-                // Keep existing paid_date
-                $update_paid_date = $segment['paid_date'];
-            }
-        } else {
-            // No payment made, keep existing paid_date or leave as null
+        // Keep existing paid_date, but no longer update it automatically
             $update_paid_date = $segment['paid_date'] ?: null;
-        }
         
         // Update custom table
         $result = $wpdb->update(
@@ -2873,25 +3133,9 @@ final class EchoVault_Loan_Schedule_API {
             $scheduled_principal = max(0, $scheduled_total_payment - $accrued_interest);
         }
         
-        // Determine status based on payment and due date
-        // 4 possible statuses: Pending, Overdue, Paid, Paid (overdue)
+        // Determine status based on payment only
+        // 2 possible statuses: Pending, Paid
         $repayment_status = 'Pending';
-        
-        // Check if due date has passed
-        $due_date_str = $segment['segment_end'];
-        $is_due_date_passed = false;
-        if ($due_date_str) {
-            try {
-                $due_date = new DateTime($due_date_str);
-                $today = new DateTime();
-                $today->setTime(0, 0, 0, 0);
-                $due_date->setTime(0, 0, 0, 0);
-                $is_due_date_passed = $due_date < $today;
-            } catch (Exception $e) {
-                // If date parsing fails, assume not overdue
-                error_log("EchoVault: Failed to parse due date for segment $segment_id: " . $e->getMessage());
-            }
-        }
         
         // Round both values to 2 decimal places for consistent comparison
         $rounded_new_total_payment = round($new_total_payment, 2);
@@ -2907,41 +3151,17 @@ final class EchoVault_Loan_Schedule_API {
             }
         }
         
-        // Determine status based on payment and due date
+        // Determine status based on payment only
         if ($has_payment) {
-            if ($is_due_date_passed) {
-                $repayment_status = 'Paid (overdue)';
-                error_log("EchoVault: Segment $segment_id marked as Paid (overdue) - new_total_payment: $rounded_new_total_payment >= scheduled_total: $rounded_scheduled_total, due date passed");
-            } else {
                 $repayment_status = 'Paid';
                 error_log("EchoVault: Segment $segment_id marked as Paid - new_total_payment: $rounded_new_total_payment >= scheduled_total: $rounded_scheduled_total");
-            }
-        } else {
-            if ($is_due_date_passed) {
-                $repayment_status = 'Overdue';
-                error_log("EchoVault: Segment $segment_id marked as Overdue - no payment made, due date passed");
             } else {
                 $repayment_status = 'Pending';
                 error_log("EchoVault: Segment $segment_id remains Pending - no payment made (new_total_payment: $rounded_new_total_payment, scheduled_total: $rounded_scheduled_total)");
-            }
         }
         
-        // Update paid_date: set it when payment is registered, or keep existing if already set
-        // Set paid_date if payment is being made (new_total_payment > 0) and no date is already recorded
-        $update_paid_date = null;
-        if ($new_total_payment > 0) {
-            // If payment is being made, set the paid_date
-            // Use provided payment_date or current date, unless a paid_date already exists
-            if (empty($segment['paid_date'])) {
-                $update_paid_date = $payment_date ?: date('Y-m-d');
-            } else {
-                // Keep existing paid_date
-                $update_paid_date = $segment['paid_date'];
-            }
-        } else {
-            // No payment made, keep existing paid_date or leave as null
+        // Keep existing paid_date, but no longer update it automatically
             $update_paid_date = $segment['paid_date'] ?: null;
-        }
         
         // Update custom table
         $result = $wpdb->update(
@@ -2971,7 +3191,132 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Recalculate all future segments after a payment
+     * Recalculate all future segments based on payment date and new balance
+     * This handles non-scheduled payments that change the balance
+     */
+    private function recalculate_future_segments_from_payment(int $loan_id, int $paid_segment_id, string $payment_date): void {
+        $this->ensure_table_exists();
+        global $wpdb;
+        $table_name = $this->get_table_name();
+        
+        // Get the paid segment to get the new balance
+        $paid_segment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE id = %d",
+            $paid_segment_id
+        ), ARRAY_A);
+        
+        if (!$paid_segment) {
+            error_log("EchoVault: Paid segment $paid_segment_id not found for recalculation");
+            return;
+        }
+
+        $new_balance = floatval($paid_segment['remain_balance']);
+        $paid_principal = floatval($paid_segment['paid_principles'] ?: 0);
+        
+        // Only recalculate if principal was paid (balance changed)
+        if ($paid_principal <= 0) {
+            error_log("EchoVault: No principal paid, skipping recalculation");
+            return;
+        }
+
+        // Get loan interest rate from loan meta (monthly rate, not annual)
+        $loan_interest = floatval(get_post_meta($loan_id, 'loan_interest', true) ?: 0);
+        $monthly_rate = $loan_interest / 100; // Monthly rate as decimal (e.g., 0.04 for 4% per month)
+
+        try {
+            $payment_date_obj = new DateTime($payment_date);
+            $payment_date_str = $payment_date_obj->format('Y-m-d');
+        } catch (Exception $e) {
+            error_log("EchoVault: Invalid payment date for recalculation: $payment_date");
+            return;
+        }
+
+        // Get all segments that come AFTER the paid segment (by ID order, which should be chronological)
+        // These segments need recalculation because the balance changed
+        $future_segments = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $table_name 
+            WHERE related_loan = %d 
+            AND id > %d
+            ORDER BY id ASC",
+            $loan_id,
+            $paid_segment_id
+        ), ARRAY_A);
+
+        if (empty($future_segments)) {
+            error_log("EchoVault: No future segments to recalculate after segment $paid_segment_id");
+            return;
+        }
+
+        // Start with the new balance after payment
+        $current_balance = $new_balance;
+        error_log("EchoVault: Recalculating " . count($future_segments) . " future segments after segment $paid_segment_id, starting from balance: $current_balance");
+
+        foreach ($future_segments as $segment) {
+            $segment_id = $segment['id'];
+            $segment_start_str = $segment['segment_start'];
+            $segment_end_str = $segment['segment_end'];
+
+            if (!$segment_start_str || !$segment_end_str) {
+                continue;
+            }
+
+            $segment_start = new DateTime($segment_start_str);
+            $segment_end = new DateTime($segment_end_str);
+            $loan_days = $segment_start->diff($segment_end)->days;
+
+            // Recalculate accrued interest with new balance using: Balance × Monthly Rate × (Days / 30)
+            $accrued_interest = $this->calculate_accrued_interest($current_balance, $monthly_rate, $loan_days);
+
+            // Recalculate outstanding interest (considering any outstanding from previous)
+            // Outstanding Interest is ONLY recorded when payment is made but less than interest due
+            $existing_outstanding = floatval($segment['outstanding_interest'] ?: 0);
+            $paid_interest = floatval($segment['paid_interest'] ?: 0);
+            
+            // Total interest owed = previous outstanding + new accrued
+            $total_interest_owed = $existing_outstanding + $accrued_interest;
+            
+            // Outstanding interest calculation:
+            // - If no interest payment made: outstanding = 0
+            // - If payment made but less than total owed: outstanding = total_owed - paid
+            // - If payment covers all interest: outstanding = 0
+            if ($paid_interest > 0 && $paid_interest < $total_interest_owed) {
+                // Payment was made but is less than total interest owed
+                $outstanding_interest = round($total_interest_owed - $paid_interest, 2);
+            } else if ($paid_interest >= $total_interest_owed && $total_interest_owed > 0) {
+                // Payment covers all interest (or overpays) - no outstanding
+                $outstanding_interest = 0;
+            } else {
+                // No interest payment made - no outstanding
+                $outstanding_interest = 0;
+            }
+
+            // Update remain_balance based on principal payments made
+            $paid_principles = floatval($segment['paid_principles'] ?: 0);
+            $remain_balance = max(0, $current_balance - $paid_principles);
+
+            // Update segment in custom table
+            $wpdb->update(
+                $table_name,
+                [
+                    'start_balance' => round($current_balance, 2),
+                    'accrued_interest' => round($accrued_interest, 2),
+                    'outstanding_interest' => round($outstanding_interest, 2),
+                    'remain_balance' => round($remain_balance, 2),
+                ],
+                ['id' => $segment_id],
+                ['%f', '%f', '%f', '%f'],
+                ['%d']
+            );
+
+            // Update balance for next segment
+            $current_balance = $remain_balance;
+        }
+        
+        error_log("EchoVault: Recalculation from payment date complete");
+    }
+
+    /**
+     * Recalculate all future segments after a payment (legacy method)
      */
     private function recalculate_future_segments(int $loan_id, int $paid_segment_id): void {
         $this->ensure_table_exists();
@@ -3026,8 +3371,20 @@ final class EchoVault_Loan_Schedule_API {
             $accrued_interest = $this->calculate_accrued_interest($current_balance, $monthly_rate, $loan_days);
 
             // Recalculate outstanding interest
+            // Outstanding Interest is ONLY recorded when payment is made but less than interest due
             $paid_interest = floatval($segment['paid_interest'] ?: 0);
-            $outstanding_interest = max(0, $accrued_interest - $paid_interest);
+            
+            // Outstanding interest calculation:
+            // - If no interest payment made: outstanding = 0
+            // - If payment made but less than accrued: outstanding = accrued - paid
+            // - If payment covers all accrued: outstanding = 0
+            if ($paid_interest > 0 && $paid_interest < $accrued_interest) {
+                // Payment was made but is less than accrued interest
+                $outstanding_interest = round($accrued_interest - $paid_interest, 2);
+            } else {
+                // No payment made or payment covers all - no outstanding
+                $outstanding_interest = 0;
+            }
 
             // Update remain_balance
             $paid_principles = floatval($segment['paid_principles'] ?: 0);
@@ -3055,23 +3412,16 @@ final class EchoVault_Loan_Schedule_API {
     }
 
     /**
-     * Calculate initial status for a new segment based on due date
-     * Returns 'Pending' or 'Overdue' (for new segments, payment is always 0)
+     * Calculate initial status for a new segment
+     * Returns 'Pending' (for new segments, payment is always 0)
      */
     private function calculate_initial_status(DateTime $segment_end): string {
-        try {
-            $today = new DateTime();
-            $today->setTime(0, 0, 0, 0);
-            $segment_end->setTime(0, 0, 0, 0);
-            return ($segment_end < $today) ? 'Overdue' : 'Pending';
-        } catch (Exception $e) {
             return 'Pending';
-        }
     }
 
     /**
-     * Update repayment status based on payment and due date
-     * Returns one of: Pending, Overdue, Paid, Paid (overdue)
+     * Update repayment status based on payment
+     * Returns one of: Pending, Paid
      */
     private function calculate_repayment_status(array $segment): string {
         $total_payment = floatval($segment['total_payment'] ?: 0);
@@ -3087,21 +3437,6 @@ final class EchoVault_Loan_Schedule_API {
             $scheduled_total_payment = $accrued_interest + $scheduled_principal;
         }
         
-        // Check if due date has passed
-        $due_date_str = $segment['segment_end'] ?? null;
-        $is_due_date_passed = false;
-        if ($due_date_str) {
-            try {
-                $due_date = new DateTime($due_date_str);
-                $today = new DateTime();
-                $today->setTime(0, 0, 0, 0);
-                $due_date->setTime(0, 0, 0, 0);
-                $is_due_date_passed = $due_date < $today;
-            } catch (Exception $e) {
-                // If date parsing fails, assume not overdue
-            }
-        }
-        
         // Round both values to 2 decimal places for consistent comparison
         $rounded_total_payment = round($total_payment, 2);
         $rounded_scheduled_total = round($scheduled_total_payment, 2);
@@ -3114,12 +3449,8 @@ final class EchoVault_Loan_Schedule_API {
             }
         }
         
-        // Determine status based on payment and due date
-        if ($has_payment) {
-            return $is_due_date_passed ? 'Paid (overdue)' : 'Paid';
-        } else {
-            return $is_due_date_passed ? 'Overdue' : 'Pending';
-        }
+        // Determine status based on payment only
+        return $has_payment ? 'Paid' : 'Pending';
     }
 
     /**
@@ -3144,7 +3475,7 @@ final class EchoVault_Loan_Schedule_API {
             $calculated_status = $this->calculate_repayment_status($row);
             $current_status = $row['repayment_status'] ?? 'Pending';
             
-            // Update status in database if it has changed (to catch overdue segments)
+            // Update status in database if it has changed (to reflect payment status)
             if ($calculated_status !== $current_status) {
                 $wpdb->update(
                     $table_name,
@@ -3234,6 +3565,193 @@ final class EchoVault_Loan_Schedule_API {
         }
         
         return 0;
+    }
+    
+    /**
+     * Save payment transaction to history table
+     */
+    private function save_payment_history(
+        int $loan_id,
+        int $segment_id,
+        string $segment_start,
+        string $segment_end,
+        string $payment_date,
+        int $loan_days,
+        int $paid_loan_days,
+        float $paid_interest,
+        float $paid_principal,
+        float $total_payment,
+        float $balance_before,
+        float $balance_after,
+        float $outstanding_interest_before,
+        float $outstanding_interest_after,
+        string $note = ''
+    ): void {
+        $this->ensure_payment_history_table_exists();
+        global $wpdb;
+        $table_name = $this->get_payment_history_table_name();
+        
+        // Check if columns exist, if not add them (for existing tables)
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM $table_name");
+        if (!in_array('segment_start', $columns)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN segment_start date NOT NULL DEFAULT '0000-00-00' AFTER segment_id");
+        }
+        if (!in_array('segment_end', $columns)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN segment_end date NOT NULL DEFAULT '0000-00-00' AFTER segment_start");
+        }
+        if (!in_array('loan_days', $columns)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN loan_days int(11) NOT NULL DEFAULT 0 AFTER payment_date");
+        }
+        if (!in_array('paid_loan_days', $columns)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN paid_loan_days int(11) NOT NULL DEFAULT 0 AFTER loan_days");
+        }
+        
+        $result = $wpdb->insert(
+            $table_name,
+            [
+                'loan_id' => $loan_id,
+                'segment_id' => $segment_id,
+                'segment_start' => $segment_start,
+                'segment_end' => $segment_end,
+                'payment_date' => $payment_date,
+                'loan_days' => $loan_days,
+                'paid_loan_days' => $paid_loan_days,
+                'paid_interest' => round($paid_interest, 2),
+                'paid_principal' => round($paid_principal, 2),
+                'total_payment' => round($total_payment, 2),
+                'balance_before' => round($balance_before, 2),
+                'balance_after' => round($balance_after, 2),
+                'outstanding_interest_before' => round($outstanding_interest_before, 2),
+                'outstanding_interest_after' => round($outstanding_interest_after, 2),
+                'note' => $note,
+            ],
+            ['%d', '%d', '%s', '%s', '%s', '%d', '%d', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%s']
+        );
+        
+        if ($result === false) {
+            error_log("EchoVault: Failed to save payment history: " . $wpdb->last_error);
+        } else {
+            error_log("EchoVault: Payment history saved for loan $loan_id, segment $segment_id");
+        }
+    }
+    
+    /**
+     * Get payment history for a loan
+     */
+    public function handle_get_payment_history(WP_REST_Request $request): WP_REST_Response {
+        // Send CORS headers immediately
+        if (!headers_sent()) {
+            header('Access-Control-Allow-Origin: *', false);
+            header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS', false);
+            header('Access-Control-Allow-Headers: Authorization, Content-Type, Accept, X-Requested-With', false);
+        }
+        
+        if ($request->get_method() === 'OPTIONS') {
+            if (!headers_sent()) {
+                status_header(200);
+            }
+            exit(0);
+        }
+        
+        try {
+            $loan_id = intval($request->get_param('loan_id'));
+            
+            if (!$loan_id || $loan_id <= 0) {
+                throw new WP_REST_Exception('invalid_params', 'Loan ID is required.', ['status' => 400]);
+            }
+            
+            $this->ensure_payment_history_table_exists();
+            global $wpdb;
+            $table_name = $this->get_payment_history_table_name();
+            
+            $history = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM $table_name WHERE loan_id = %d ORDER BY payment_date ASC, created_at ASC",
+                $loan_id
+            ), ARRAY_A);
+            
+            // Get segment table name for lookups
+            $segment_table_name = $this->get_table_name();
+            
+            $formatted_history = [];
+            foreach ($history as $row) {
+                $segment_id = isset($row['segment_id']) ? (int)$row['segment_id'] : 0;
+                $segment_start = isset($row['segment_start']) && !empty($row['segment_start']) ? (string)$row['segment_start'] : '';
+                $segment_end = isset($row['segment_end']) && !empty($row['segment_end']) ? (string)$row['segment_end'] : '';
+                $loan_days = isset($row['loan_days']) ? (int)$row['loan_days'] : 0;
+                
+                // If segment dates are missing, try to fetch from segment table
+                if ((empty($segment_start) || empty($segment_end)) && $segment_id > 0) {
+                    $segment_data = $wpdb->get_row($wpdb->prepare(
+                        "SELECT segment_start, segment_end, loan_days FROM $segment_table_name WHERE id = %d",
+                        $segment_id
+                    ), ARRAY_A);
+                    
+                    if ($segment_data) {
+                        if (empty($segment_start) && isset($segment_data['segment_start'])) {
+                            $segment_start = (string)$segment_data['segment_start'];
+                        }
+                        if (empty($segment_end) && isset($segment_data['segment_end'])) {
+                            $segment_end = (string)$segment_data['segment_end'];
+                        }
+                        if ($loan_days == 0 && isset($segment_data['loan_days'])) {
+                            $loan_days = intval($segment_data['loan_days']);
+                        }
+                    }
+                }
+                
+                $formatted_history[] = [
+                    'id' => (int)$row['id'],
+                    'loan_id' => (int)$row['loan_id'],
+                    'segment_start' => $segment_start,
+                    'segment_end' => $segment_end,
+                    'payment_date' => (string)$row['payment_date'],
+                    'loan_days' => $loan_days,
+                    'paid_loan_days' => isset($row['paid_loan_days']) ? (int)$row['paid_loan_days'] : 0,
+                    'paid_interest' => (float)$row['paid_interest'],
+                    'paid_principal' => (float)$row['paid_principal'],
+                    'total_payment' => (float)$row['total_payment'],
+                    'balance_before' => (float)$row['balance_before'],
+                    'balance_after' => (float)$row['balance_after'],
+                    'outstanding_interest_before' => (float)$row['outstanding_interest_before'],
+                    'outstanding_interest_after' => (float)$row['outstanding_interest_after'],
+                    'note' => (string)$row['note'],
+                    'created_at' => (string)$row['created_at'],
+                ];
+            }
+            
+            $response = new WP_REST_Response(
+                [
+                    'success' => true,
+                    'history' => $formatted_history,
+                ],
+                200
+            );
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
+        } catch (WP_REST_Exception $e) {
+            error_log("EchoVault: WP_REST_Exception in handle_get_payment_history: " . $e->getMessage());
+            $response = new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                    'code' => $e->getErrorCode(),
+                ],
+                $e->getStatus()
+            );
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
+        } catch (Exception $e) {
+            error_log("EchoVault: Exception in handle_get_payment_history: " . $e->getMessage());
+            $response = new WP_REST_Response(
+                [
+                    'success' => false,
+                    'error' => 'Internal server error: ' . $e->getMessage(),
+                ],
+                500
+            );
+            $response->header('Access-Control-Allow-Origin', '*');
+            return $response;
+        }
     }
 }
 

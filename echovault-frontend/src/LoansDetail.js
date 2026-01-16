@@ -174,14 +174,18 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
 
   const [schedule, setSchedule] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
-    paid_interest: 0,
-    paid_principles: 0,
-    total_payment: 0,
+    paid_interest: '',
+    paid_principles: '',
     payment_date: new Date().toISOString().split('T')[0],
     repayment_note: ''
+  });
+  const [paymentFormErrors, setPaymentFormErrors] = useState({
+    paid_interest: ''
   });
   const [paymentLoading, setPaymentLoading] = useState(false);
 
@@ -228,11 +232,95 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
     };
 
     fetchSchedule();
+    
+    // Fetch payment history
+    const fetchPaymentHistory = async () => {
+      if (!loanId || !token) {
+        setPaymentHistory([]);
+        return;
+      }
+
+      setPaymentHistoryLoading(true);
+      try {
+        const endpoint = `${apiBase}/echovault/v2/get-payment-history?loan_id=${loanId}`;
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+            'Accept': 'application/json'
+          },
+          mode: 'cors',
+          credentials: 'omit'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.history) {
+            setPaymentHistory(data.history);
+            return;
+          }
+        }
+        
+        setPaymentHistory([]);
+      } catch (error) {
+        console.warn('Error fetching payment history:', error);
+        setPaymentHistory([]);
+      } finally {
+        setPaymentHistoryLoading(false);
+      }
+    };
+
+    fetchPaymentHistory();
   }, [loan, token, loanId]);
 
   // Register payment
   const registerPayment = async () => {
     if (!selectedSegment || !token || !loanId) return;
+    
+    // Validate payment date is provided
+    if (!paymentForm.payment_date) {
+      alert('Payment Date is required');
+      return;
+    }
+    
+    // At least one payment (interest or principal) must be provided
+    const paidInterest = parseFloat(paymentForm.paid_interest) || 0;
+    const paidPrincipal = parseFloat(paymentForm.paid_principles) || 0;
+    
+    if (paidInterest === 0 && paidPrincipal === 0) {
+      alert('Please enter at least an Interest or Principal payment amount');
+      return;
+    }
+    
+    // Validate interest payment does not exceed accrued interest
+    if (paidInterest > 0) {
+      const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
+      const segmentStart = selectedSegment.segment_start;
+      const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
+      const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
+      
+      let maxInterest = 0;
+      
+      if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
+        try {
+          const paymentDate = new Date(paymentDateStr);
+          const segmentStartDate = new Date(segmentStart);
+          const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
+          const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
+          const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
+          maxInterest = calculatedInterest + outstanding;
+        } catch (e) {
+          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+        }
+      } else {
+        maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+      }
+      
+      if (paidInterest > maxInterest) {
+        setPaymentFormErrors({...paymentFormErrors, paid_interest: `Interest payment (${getCurrencySymbol(currency)}${paidInterest.toFixed(2)}) cannot exceed the accrued interest amount (${getCurrencySymbol(currency)}${maxInterest.toFixed(2)}). Please enter a value less than or equal to this amount.`});
+        return;
+      }
+    }
     
     setPaymentLoading(true);
     try {
@@ -247,9 +335,8 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
         body: JSON.stringify({
           loan_id: parseInt(loanId),
           segment_id: parseInt(selectedSegment.id),
-          paid_interest: 0, // Read-only, backend will calculate from total_payment
-          paid_principles: 0, // Read-only, backend will calculate from total_payment
-          total_payment: parseFloat(paymentForm.total_payment) || 0,
+          paid_interest: paidInterest,
+          paid_principles: paidPrincipal,
           payment_date: paymentForm.payment_date,
           repayment_note: paymentForm.repayment_note || ''
         }),
@@ -282,15 +369,33 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               }
             }
           }
+          
+          // Refresh payment history after successful payment
+          const historyEndpoint = `${apiBase}/echovault/v2/get-payment-history?loan_id=${loanId}`;
+          const historyResponse = await fetch(historyEndpoint, {
+            method: 'GET',
+            headers: {
+              'Authorization': token ? `Bearer ${token}` : '',
+              'Accept': 'application/json'
+            },
+            mode: 'cors',
+            credentials: 'omit'
+          });
+          if (historyResponse.ok) {
+            const historyData = await historyResponse.json();
+            if (historyData.success && historyData.history) {
+              setPaymentHistory(historyData.history);
+            }
+          }
           setShowPaymentModal(false);
           setSelectedSegment(null);
           setPaymentForm({
-            paid_interest: 0,
-            paid_principles: 0,
-            total_payment: 0,
+            paid_interest: '',
+            paid_principles: '',
             payment_date: new Date().toISOString().split('T')[0],
             repayment_note: ''
           });
+          setPaymentFormErrors({ paid_interest: '' });
         } else {
           alert('Error: ' + (data.error || 'Failed to register payment'));
         }
@@ -308,14 +413,70 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
 
   const openPaymentModal = (segment) => {
     setSelectedSegment(segment);
+    
+    // Find the latest payment date from all segments to set minimum payment date
+    let latestPaymentDate = null;
+    if (schedule && schedule.length > 0) {
+      schedule.forEach(s => {
+        if (s.paid_date && s.paid_date.trim() !== '' && s.paid_date !== '-') {
+          const paidDate = new Date(s.paid_date);
+          if (!latestPaymentDate || paidDate > latestPaymentDate) {
+            latestPaymentDate = paidDate;
+          }
+        }
+      });
+    }
+    
+    // Default payment date: today or the day after latest payment (whichever is later)
+    let defaultPaymentDate = new Date();
+    if (latestPaymentDate) {
+      const nextDay = new Date(latestPaymentDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      if (nextDay > defaultPaymentDate) {
+        defaultPaymentDate = nextDay;
+      }
+    }
+    
       setPaymentForm({
-        paid_interest: segment.paid_interest || 0,
-        paid_principles: segment.paid_principles || 0,
-        total_payment: segment.total_payment || 0,
-        payment_date: new Date().toISOString().split('T')[0],
-        repayment_note: segment.repayment_note || ''
+      paid_interest: '',
+      paid_principles: '',
+      payment_date: defaultPaymentDate.toISOString().split('T')[0],
+      repayment_note: ''
       });
     setShowPaymentModal(true);
+  };
+
+  const downloadPaymentHistoryCsv = () => {
+    if (!paymentHistory || paymentHistory.length === 0) return;
+    const headers = ['ID','Segment ID','Segment Start','Segment End','Payment Date','Loan Days','Paid Loan Days','Paid Interest','Paid Principal','Total Payment','Balance Before','Balance After','Outstanding Interest Before','Outstanding Interest After','Note','Created At'];
+    const rows = paymentHistory.map(h => [
+      h.id,
+      h.segment_id || '',
+      h.segment_start || '',
+      h.segment_end || '',
+      h.payment_date || '',
+      h.loan_days || 0,
+      h.paid_loan_days || 0,
+      (h.paid_interest || 0).toFixed(2),
+      (h.paid_principal || 0).toFixed(2),
+      (h.total_payment || 0).toFixed(2),
+      (h.balance_before || 0).toFixed(2),
+      (h.balance_after || 0).toFixed(2),
+      (h.outstanding_interest_before || 0).toFixed(2),
+      (h.outstanding_interest_after || 0).toFixed(2),
+      h.note || '',
+      h.created_at || ''
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payment_history_loan_${loanId}_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   };
 
   const downloadScheduleCsv = () => {
@@ -471,91 +632,32 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               <div className="text-gray-500">Repayment Status</div>
               <div className="text-gray-900 font-medium">
                 {(() => {
-                  // Determine repayment status by checking segments in order
-                  // Find the FIRST segment that is NOT paid - this is the current payment status
+                  // Determine repayment status based on loan end date
+                  // If current date > loan end date → "Overdue", otherwise → "Pending"
                   let displayStatus = 'Pending';
                   let statusClass = 'bg-gray-100 text-gray-800';
-                  let hasOverduePaid = false;
                   
-                  if (schedule && schedule.length > 0) {
+                  const endDateStr = loan.end_date || loan.meta?.end_date;
+                  if (endDateStr) {
+                    try {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    
-                    let allSegmentsPaid = true;
-                    let firstUnpaidSegment = null;
-                    
-                    // First, check if all segments are paid (by checking payment data)
-                    schedule.forEach(r => {
-                      const originalStatus = String(r.repayment_status || 'Pending').trim();
-                      const hasPayment = (r.total_payment && parseFloat(r.total_payment) > 0) 
-                        || (r.paid_date && r.paid_date.trim() !== '' && r.paid_date !== '-')
-                        || (r.paid_interest && parseFloat(r.paid_interest) > 0)
-                        || (r.paid_principles && parseFloat(r.paid_principles) > 0)
-                        || (originalStatus.toLowerCase() === 'paid');
+                      const endDate = new Date(endDateStr);
+                      endDate.setHours(0, 0, 0, 0);
                       
-                      if (!hasPayment) {
-                        allSegmentsPaid = false;
-                        // Find the first unpaid segment (by order in array, which should be chronological)
-                        if (!firstUnpaidSegment) {
-                          firstUnpaidSegment = r;
-                        }
-                      }
-                    });
-                    
-                    if (allSegmentsPaid) {
-                      // All segments are paid - check if any was overdue when paid
-                      schedule.forEach(r => {
-                        const originalStatus = String(r.repayment_status || 'Pending').trim();
-                        const hasPayment = (r.total_payment && parseFloat(r.total_payment) > 0) 
-                          || (r.paid_date && r.paid_date.trim() !== '' && r.paid_date !== '-')
-                          || (r.paid_interest && parseFloat(r.paid_interest) > 0)
-                          || (r.paid_principles && parseFloat(r.paid_principles) > 0)
-                          || (originalStatus.toLowerCase() === 'paid');
-                        
-                        if (hasPayment) {
-                          const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
-                          if (dueDateStr) {
-                            try {
-                              const dueDate = new Date(dueDateStr);
-                              dueDate.setHours(0, 0, 0, 0);
-                              if (dueDate < today) {
-                                hasOverduePaid = true;
-                              }
-                            } catch (e) {}
-                          }
-                        }
-                      });
-                      displayStatus = 'Paid';
-                      statusClass = hasOverduePaid ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800';
-                    } else if (firstUnpaidSegment) {
-                      // We have an unpaid segment - check if it's overdue
-                      const dueDateStr = firstUnpaidSegment.segment_end || firstUnpaidSegment.repayment_date || firstUnpaidSegment.end_date;
-                      let isDueDatePassed = false;
-                      
-                      // Check if due date has passed
-                      if (dueDateStr) {
-                        try {
-                          const dueDate = new Date(dueDateStr);
-                          dueDate.setHours(0, 0, 0, 0);
-                          isDueDatePassed = dueDate < today;
-                        } catch (e) {
-                          // Ignore date parsing errors
-                        }
-                      }
-                      
-                      // ONLY 4 BADGES:
-                      // 1. "Paid" (GREEN): All segments paid AND no overdue payments
-                      // 2. "Paid" (RED): All segments paid BUT some were overdue when paid
-                      // 3. "Overdue" (RED): First unpaid segment's due date has passed
-                      // 4. "Pending" (GRAY): First unpaid segment's due date hasn't passed
-                      
-                      if (isDueDatePassed) {
+                      if (endDate < today) {
+                        // Loan end date has passed
                         displayStatus = 'Overdue';
                         statusClass = 'bg-red-100 text-red-800';
                       } else {
+                        // Loan end date hasn't passed
                         displayStatus = 'Pending';
                         statusClass = 'bg-gray-100 text-gray-800';
                       }
+                    } catch (e) {
+                      // If date parsing fails, default to Pending
+                      displayStatus = 'Pending';
+                      statusClass = 'bg-gray-100 text-gray-800';
                     }
                   }
                   
@@ -710,9 +812,9 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
               <p className="text-xs text-gray-500 mt-2">If the schedule doesn't appear, please refresh the page.</p>
             </div>
           ) : (
-            <div className="w-full overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div className="w-full border border-gray-200 rounded" style={{ maxHeight: '600px', overflow: 'auto' }}>
               <table className="divide-y divide-gray-200 text-xs w-full" style={{ minWidth: '1200px' }}>
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th className="px-2 py-2 text-center">#</th>
                     <th className="px-2 py-2 text-left">Start Date</th>
@@ -736,27 +838,10 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                   {schedule.map((r, index) => {
                     // Determine status and badge color - USE DATABASE STATUS
                     const originalStatus = String(r.repayment_status || 'Pending').trim();
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
                     
-                    // Check if due date has passed
-                    let isDueDatePassed = false;
-                    if (dueDateStr) {
-                      try {
-                        const dueDate = new Date(dueDateStr);
-                        dueDate.setHours(0, 0, 0, 0);
-                        isDueDatePassed = dueDate < today;
-                      } catch (e) {
-                        // Ignore date parsing errors
-                      }
-                    }
-                    
-                    // Determine display status - ONLY 4 BADGES:
-                    // 1. Pending - gray (no payment made and due date hasn't passed)
-                    // 2. Paid - green (payment made and due date hasn't passed)
-                    // 3. Paid - red (payment made but due date has passed)
-                    // 4. Overdue - red (no payment made and due date has passed)
+                    // Determine display status - ONLY 2 STATUSES:
+                    // 1. Pending - gray (no payment made)
+                    // 2. Paid - green (payment made)
                     let displayStatus = 'Pending';
                     let statusClass = 'bg-gray-100 text-gray-800';
                     
@@ -768,23 +853,11 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                       || (originalStatus.toLowerCase() === 'paid');
                     
                     if (hasPayment) {
-                      // Payment has been made - check if it was overdue
-                      if (isDueDatePassed) {
-                        displayStatus = 'Paid'; // RED badge (paid but overdue)
-                        statusClass = 'bg-red-100 text-red-800';
-                      } else {
-                        displayStatus = 'Paid'; // GREEN badge (paid on time)
+                      // Payment has been made - show as Paid with green badge
+                      displayStatus = 'Paid';
                         statusClass = 'bg-green-100 text-green-800';
-                      }
-                    } 
-                    // No payment made - check if overdue
-                    else if (isDueDatePassed) {
-                      // Not paid AND overdue = "Overdue" with RED badge
-                      displayStatus = 'Overdue';
-                      statusClass = 'bg-red-100 text-red-800';
-                    } 
-                    // Not paid and not overdue = "Pending" with GRAY badge
-                    else {
+                    } else {
+                      // No payment made - show as Pending with gray badge
                       displayStatus = 'Pending';
                       statusClass = 'bg-gray-100 text-gray-800';
                     }
@@ -824,9 +897,103 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     );
                   })}
                 </tbody>
+                <tfoot className="bg-gray-100 border-t-2 border-gray-300 font-semibold">
+                  <tr>
+                    <td className="px-2 py-2 text-center" colSpan="5">TOTAL</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{(schedule[0]?.start_balance || 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{schedule.reduce((sum, r) => sum + (parseFloat(r.accrued_interest) || 0), 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{schedule.reduce((sum, r) => {
+                      const scheduledPrincipal = r.scheduled_principal !== undefined 
+                        ? (r.scheduled_principal || 0)
+                        : ((r.start_balance || 0) - (r.remain_balance || 0));
+                      return sum + scheduledPrincipal;
+                    }, 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{schedule.reduce((sum, r) => {
+                      const scheduledPrincipal = r.scheduled_principal !== undefined 
+                        ? (r.scheduled_principal || 0)
+                        : ((r.start_balance || 0) - (r.remain_balance || 0));
+                      const scheduledTotalPayment = r.scheduled_total_payment !== undefined
+                        ? (r.scheduled_total_payment || 0)
+                        : ((r.accrued_interest || 0) + scheduledPrincipal);
+                      return sum + scheduledTotalPayment;
+                    }, 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{schedule.reduce((sum, r) => sum + (parseFloat(r.outstanding_interest) || 0), 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{schedule.reduce((sum, r) => sum + (parseFloat(r.paid_interest) || 0), 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{schedule.reduce((sum, r) => sum + (parseFloat(r.paid_principles) || 0), 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{schedule.reduce((sum, r) => sum + (parseFloat(r.total_payment) || 0), 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-right">{getCurrencySymbol(currency)}{(schedule[schedule.length - 1]?.remain_balance || 0).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-center" colSpan="2"></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
+          
+          {/* Payment History Section */}
+          <div className="mt-6 border-t pt-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-3">
+              <h3 className="text-lg font-semibold text-gray-900">Payment History</h3>
+              <button
+                type="button"
+                onClick={downloadPaymentHistoryCsv}
+                disabled={!paymentHistory || paymentHistory.length === 0}
+                className="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Download Payment History CSV"
+              >
+                Download Payment History CSV
+              </button>
+            </div>
+            {paymentHistoryLoading ? (
+              <div className="text-center py-4 text-gray-500">Loading payment history...</div>
+            ) : paymentHistory && paymentHistory.length > 0 ? (
+              <div className="w-full border border-gray-200 rounded" style={{ maxHeight: '400px', overflow: 'auto' }}>
+                <table className="min-w-full divide-y divide-gray-200 text-xs">
+                  <thead className="bg-gray-50 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-2 py-2 text-left font-semibold text-gray-700">ID</th>
+                      <th className="px-2 py-2 text-left font-semibold text-gray-700">Segment Start</th>
+                      <th className="px-2 py-2 text-left font-semibold text-gray-700">Segment End</th>
+                      <th className="px-2 py-2 text-left font-semibold text-gray-700">Payment Date</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700">Loan Days</th>
+                      <th className="px-2 py-2 text-center font-semibold text-gray-700">Paid Loan Days</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700">Paid Interest</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700">Paid Principal</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700">Total Payment</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700">Balance Before</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700">Balance After</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700">Outstanding Int. Before</th>
+                      <th className="px-2 py-2 text-right font-semibold text-gray-700">Outstanding Int. After</th>
+                      <th className="px-2 py-2 text-left font-semibold text-gray-700">Note</th>
+                      <th className="px-2 py-2 text-left font-semibold text-gray-700">Created At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {paymentHistory.map((h, idx) => (
+                      <tr key={h.id || idx} className="hover:bg-gray-50">
+                        <td className="px-2 py-1">{h.id}</td>
+                        <td className="px-2 py-1">{h.segment_start || '-'}</td>
+                        <td className="px-2 py-1">{h.segment_end || '-'}</td>
+                        <td className="px-2 py-1">{h.payment_date || '-'}</td>
+                        <td className="px-2 py-1 text-center">{h.loan_days || 0}</td>
+                        <td className="px-2 py-1 text-center">{h.paid_loan_days || 0}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(h.paid_interest || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(h.paid_principal || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right font-medium">{getCurrencySymbol(currency)}{(h.total_payment || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(h.balance_before || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(h.balance_after || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(h.outstanding_interest_before || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-right">{getCurrencySymbol(currency)}{(h.outstanding_interest_after || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1 text-xs text-gray-600 min-w-[150px] break-words">{h.note || '-'}</td>
+                        <td className="px-2 py-1 text-xs text-gray-600">{h.created_at ? new Date(h.created_at).toLocaleString() : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-gray-500">No payment history available</div>
+            )}
+          </div>
           
           {/* Payment Registration Modal */}
           {showPaymentModal && selectedSegment && (
@@ -868,17 +1035,6 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     <div className="flex items-center">
                       {(() => {
                         const originalStatus = String(selectedSegment.repayment_status || 'Pending').trim();
-                        const dueDateStr = selectedSegment.segment_end || selectedSegment.repayment_date || selectedSegment.end_date;
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        let isDueDatePassed = false;
-                        if (dueDateStr) {
-                          try {
-                            const dueDate = new Date(dueDateStr);
-                            dueDate.setHours(0, 0, 0, 0);
-                            isDueDatePassed = dueDate < today;
-                          } catch (e) {}
-                        }
                         
                         // Check if payment has been made - check payment data first
                         const hasPayment = (selectedSegment.total_payment && parseFloat(selectedSegment.total_payment) > 0) 
@@ -890,15 +1046,14 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                         let displayStatus = 'Pending';
                         let statusClass = 'bg-gray-100 text-gray-800';
                         
+                        // ONLY 2 STATUSES:
+                        // 1. "Paid" (GREEN): Payment has been made
+                        // 2. "Pending" (GRAY): No payment made
+                        
                         if (hasPayment) {
                           displayStatus = 'Paid';
-                          statusClass = isDueDatePassed ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800';
-                        } else if (isDueDatePassed) {
-                          // Not paid AND overdue = "Overdue"
-                          displayStatus = 'Overdue';
-                          statusClass = 'bg-red-100 text-red-800';
+                          statusClass = 'bg-green-100 text-green-800';
                         } else {
-                          // Not paid and not overdue = "Pending"
                           displayStatus = 'Pending';
                           statusClass = 'bg-gray-100 text-gray-800';
                         }
@@ -912,15 +1067,6 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Repayment Type</label>
-                    <input
-                      type="text"
-                      value={loan?.repayment_type || loan?.meta?.repayment_type || '-'}
-                      disabled
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                    />
-                  </div>
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Remain Balance</label>
                     <input
                       type="text"
@@ -930,22 +1076,119 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Interest (Scheduled)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date <span className="text-red-500">*</span></label>
                     <input
-                      type="text"
-                      value={`${getCurrencySymbol(currency)}${(selectedSegment.accrued_interest || 0).toFixed(2)}`}
-                      disabled
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                      type="date"
+                      value={paymentForm.payment_date}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
+                        // Find the latest payment date from all segments
+                        let latestPaymentDate = null;
+                        if (schedule && schedule.length > 0) {
+                          schedule.forEach(s => {
+                            if (s.paid_date && s.paid_date.trim() !== '' && s.paid_date !== '-') {
+                              const paidDate = new Date(s.paid_date);
+                              if (!latestPaymentDate || paidDate > latestPaymentDate) {
+                                latestPaymentDate = paidDate;
+                              }
+                            }
+                          });
+                        }
+                        
+                        // Validate: payment date must be after latest payment date
+                        if (latestPaymentDate) {
+                          const latestDateStr = latestPaymentDate.toISOString().split('T')[0];
+                          if (selectedDate <= latestDateStr) {
+                            alert(`Payment date must be after the last payment date (${latestDateStr}). Please select a later date.`);
+                            return;
+                          }
+                        }
+                        setPaymentForm({...paymentForm, payment_date: selectedDate});
+                      }}
+                      min={(() => {
+                        // Set minimum date to day after latest payment
+                        let latestPaymentDate = null;
+                        if (schedule && schedule.length > 0) {
+                          schedule.forEach(s => {
+                            if (s.paid_date && s.paid_date.trim() !== '' && s.paid_date !== '-') {
+                              const paidDate = new Date(s.paid_date);
+                              if (!latestPaymentDate || paidDate > latestPaymentDate) {
+                                latestPaymentDate = paidDate;
+                              }
+                            }
+                          });
+                        }
+                        if (latestPaymentDate) {
+                          const nextDay = new Date(latestPaymentDate);
+                          nextDay.setDate(nextDay.getDate() + 1);
+                          return nextDay.toISOString().split('T')[0];
+                        }
+                        return '';
+                      })()}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      required
                     />
+                    <p className="text-xs text-gray-500 mt-1">Required - Must be after last payment date</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Principal (Scheduled)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Interest (Accrued)</label>
                     <input
                       type="text"
-                      value={`${getCurrencySymbol(currency)}${(selectedSegment.scheduled_principal || 0).toFixed(2)}`}
+                      value={(() => {
+                        // Calculate interest dynamically based on selected payment date
+                        // Interest accrues from segment START to PAYMENT DATE
+                        // NOT from payment date to segment end!
+                        const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100; // Monthly rate as decimal
+                        const segmentStart = selectedSegment.segment_start;
+                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
+                        
+                        // Use start_balance (balance at segment start) for interest calculation
+                        const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
+                        
+                        let interestToShow = 0;
+                        
+                        if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
+                          try {
+                            const paymentDate = new Date(paymentDateStr);
+                            const segmentStartDate = new Date(segmentStart);
+                            
+                            // Calculate interest from SEGMENT START to PAYMENT DATE
+                            // This is the interest that has accrued up to the payment date
+                            const calcStartDate = segmentStartDate;
+                            const calcEndDate = paymentDate >= segmentStartDate ? paymentDate : segmentStartDate;
+                            const daysDiff = Math.max(0, Math.ceil((calcEndDate - calcStartDate) / (1000 * 60 * 60 * 24)));
+                            
+                            // Calculate interest: Balance × Monthly Rate × (Days / 30)
+                            // This is the exact interest from segment start to payment date
+                            const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
+                            
+                            // Add outstanding interest if any (unpaid from previous periods)
+                            const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
+                            interestToShow = calculatedInterest + outstanding;
+                          } catch (e) {
+                            console.warn('Error calculating interest:', e);
+                            interestToShow = selectedSegment.accrued_interest || 0;
+                          }
+                        } else {
+                          interestToShow = selectedSegment.accrued_interest || 0;
+                        }
+                        
+                        return `${getCurrencySymbol(currency)}${interestToShow.toFixed(2)}`;
+                      })()}
                       disabled
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
                     />
+                    <p className="text-xs text-gray-500 mt-1">Calculated from segment start to payment date based on loan days</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Principal (Remaining)</label>
+                    <input
+                      type="text"
+                      value={`${getCurrencySymbol(currency)}${(selectedSegment.remain_balance || 0).toFixed(2)}`}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Current remaining balance to pay</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Total Payment (Scheduled)</label>
@@ -957,24 +1200,130 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Paid Total Payment</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Outstanding Interest</label>
+                    <input
+                      type="text"
+                      value={`${getCurrencySymbol(currency)}${(selectedSegment.outstanding_interest || 0).toFixed(2)}`}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Previous unpaid interest that should be settled</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Interest Payment</label>
                     <input
                       type="number"
                       step="0.01"
-                      value={paymentForm.total_payment}
-                      onChange={(e) => setPaymentForm({...paymentForm, total_payment: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="Enter total payment amount"
+                      min="0"
+                      max={(() => {
+                        // Calculate maximum allowed interest (accrued interest up to payment date)
+                        const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
+                        const segmentStart = selectedSegment.segment_start;
+                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
+                        const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
+                        
+                        let maxInterest = 0;
+                        
+                        if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
+                          try {
+                            const paymentDate = new Date(paymentDateStr);
+                            const segmentStartDate = new Date(segmentStart);
+                            const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
+                            const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
+                            const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
+                            maxInterest = calculatedInterest + outstanding;
+                          } catch (e) {
+                            maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+                          }
+                        } else {
+                          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+                        }
+                        
+                        return maxInterest.toFixed(2);
+                      })()}
+                      value={paymentForm.paid_interest}
+                      onChange={(e) => {
+                        const enteredValue = parseFloat(e.target.value) || 0;
+                        
+                        // Calculate maximum allowed interest
+                        const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
+                        const segmentStart = selectedSegment.segment_start;
+                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
+                        const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
+                        
+                        let maxInterest = 0;
+                        
+                        if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
+                          try {
+                            const paymentDate = new Date(paymentDateStr);
+                            const segmentStartDate = new Date(segmentStart);
+                            const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
+                            const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
+                            const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
+                            maxInterest = calculatedInterest + outstanding;
+                          } catch (e) {
+                            maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+                          }
+                        } else {
+                          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+                        }
+                        
+                        // Validate: cannot exceed maximum accrued interest
+                        if (enteredValue > maxInterest) {
+                          // Show error instead of alert
+                          setPaymentFormErrors({...paymentFormErrors, paid_interest: `Interest payment cannot exceed the accrued interest amount (${getCurrencySymbol(currency)}${maxInterest.toFixed(2)}). Please enter a value less than or equal to this amount.`});
+                        } else {
+                          // Clear error if valid
+                          setPaymentFormErrors({...paymentFormErrors, paid_interest: ''});
+                        }
+                        
+                        setPaymentForm({...paymentForm, paid_interest: e.target.value});
+                      }}
+                      className={`w-full px-3 py-2 border rounded-md ${paymentFormErrors.paid_interest ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : 'border-gray-300'}`}
+                      placeholder="Enter interest amount (0 if no interest)"
                     />
+                    {paymentFormErrors.paid_interest ? (
+                      <p className="text-xs text-red-500 mt-1">{paymentFormErrors.paid_interest}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">Enter 0 if no interest payment, or amount up to accrued interest ({getCurrencySymbol(currency)}{(() => {
+                      const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
+                      const segmentStart = selectedSegment.segment_start;
+                      const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
+                      const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
+                      
+                      let maxInterest = 0;
+                      
+                      if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
+                        try {
+                          const paymentDate = new Date(paymentDateStr);
+                          const segmentStartDate = new Date(segmentStart);
+                          const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
+                          const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
+                          const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
+                          maxInterest = calculatedInterest + outstanding;
+                        } catch (e) {
+                          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+                        }
+                      } else {
+                        maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
+                      }
+                      
+                      return maxInterest.toFixed(2);
+                    })()})</p>
+                    )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Principal Payment</label>
                     <input
-                      type="date"
-                      value={paymentForm.payment_date}
-                      onChange={(e) => setPaymentForm({...paymentForm, payment_date: e.target.value})}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={paymentForm.paid_principles}
+                      onChange={(e) => setPaymentForm({...paymentForm, paid_principles: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Enter principal amount (0 if no principal)"
                     />
+                    <p className="text-xs text-gray-500 mt-1">Enter 0 if no principal payment, or amount to pay</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Note</label>
