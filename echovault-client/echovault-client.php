@@ -507,58 +507,75 @@ final class EchoVault_Client {
                 '<html>
                 <head>
                     <style>
-                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                        .header { background-color: #0d1b2a; color: white !important; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
-                        .content { background-color: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none; }
-                        .credentials { background-color: white; padding: 20px; margin: 20px 0; border: 2px solid #4F46E5; border-radius: 5px; }
-                        .credentials-label { font-weight: bold; color: #0d1b2a; margin-bottom: 10px; }
-                        .credentials-value { font-size: 16px; color: #0d1b2a; margin: 5px 0; }
-                        .warning { background-color: #FEF3C7; border-left: 4px solid #F59E0B; padding: 15px; margin: 20px 0; }
-                        .footer { text-align: center; padding: 20px; color: #6B7280; font-size: 12px; }
+                        body { font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, \'Helvetica Neue\', Arial, sans-serif; line-height: 1.6; color: #374151; background-color: #f3f4f6; margin: 0; padding: 0; }
+                        .container { max-width: 600px; margin: 0 auto; background-color: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); overflow: hidden; }
+                        .header { background-color: white; padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #e5e7eb; }
+                        .header h1 { color: #111827; font-size: 24px; font-weight: 600; margin: 0 0 8px 0; }
+                        .header p { color: #6B7280; font-size: 14px; margin: 0; }
+                        .content { padding: 32px; background-color: white; }
+                        .content p { color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0; }
+                        .button-container { text-align: center; margin: 32px 0; }
+                        .button { display: inline-block; background-color: #fb8500; color: white !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px; }
+                        .button:hover { background-color: #fca311; }
+                        .credentials { background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; margin: 24px 0; }
+                        .credentials-label { font-weight: 500; color: #374151; margin-bottom: 8px; font-size: 14px; }
+                        .credentials-value { font-size: 16px; color: #111827; font-weight: 500; }
+                        .warning { background-color: #FEF3C7; border-left: 4px solid #F59E0B; padding: 12px 16px; margin: 24px 0; border-radius: 4px; }
+                        .warning strong { color: #92400E; }
+                        .warning p { color: #92400E; margin: 0; font-size: 14px; }
+                        .footer { text-align: center; padding: 24px 32px; color: #6B7280; font-size: 12px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; }
+                        .link-text { font-size: 12px; color: #6B7280; word-break: break-all; margin-top: 8px; }
+                        .link-text a { color: #2563eb; text-decoration: none; }
                     </style>
                 </head>
                 <body>
-                    <div class="container">
-                        <div class="header">
-                            <h1>Welcome to %s!</h1>
-                        </div>
-                        <div class="content">
-                            <p>Hello %s,</p>
-                            <p>Your account has been successfully created. Please click the button below to set your password and activate your account:</p>
-                            
-                            <div style="text-align: center; margin: 30px 0;">
-                                <a href="%s" style="display: inline-block; background-color: #0d1b2a; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">Create Your Password</a>
+                    <div style="padding: 20px;">
+                        <div class="container">
+                            <div class="header">
+                                <h1>Welcome to %s</h1>
+                                <p>Loan Management System</p>
                             </div>
-                            
-                            <div class="credentials">
-                                <div class="credentials-label">Your Username:</div>
-                                <div class="credentials-value">%s</div>
+                            <div class="content">
+                                <p>Hello %s,</p>
+                                <p>Your account has been successfully created. You can log in using the username shown below and a password you create yourself.
+                                <br>Please note that the username cannot be changed — you will only be setting a new password.</br>
+                                <br>Click the button below to set your password and activate your account.</br></p>
+                                
+                                <div class="button-container">
+                                    <a href="%s" class="button">Create Your Password</a>
+                                </div>
+                                
+                                <div class="credentials">
+                                    <div class="credentials-label">Your Username:</div>
+                                    <div class="credentials-value">%s</div>
+                                </div>
+                                
+                                <div class="warning">
+                                    <strong>Important:</strong>
+                                    <p>Please use the button above to set your password. This link will expire in 24 hours for security purposes.</p>
+                                </div>
+                                
+                                <p class="link-text">If the button doesn\'t work, you can click this link:<br><a href="%s">%s</a></p>
+                                
+                                <p>If you have any questions or need assistance, please don\'t hesitate to contact us.</p>
+                                
+                                <p style="margin-top: 24px;">Best regards,<br><strong>The %s Team</strong></p>
                             </div>
-                            
-                            <div class="warning">
-                                <strong>Important:</strong> Please use the button above to set your password. This link will expire in 24 hours for security purposes.
+                            <div class="footer">
+                                <p>This is an automated email from %s. Please do not reply to this email.</p>
                             </div>
-                            
-                            <p style="margin-top: 20px; font-size: 12px; color: #6B7280;">If the button doesn\'t work, you can copy and paste this link into your browser:<br>%s</p>
-                            
-                            <p>If you have any questions or need assistance, please don\'t hesitate to contact us.</p>
-                            
-                            <p>Best regards,<br>The %s Team</p>
-                        </div>
-                        <div class="footer">
-                            <p>This is an automated email from %s. Please do not reply to this email.</p>
                         </div>
                     </div>
                 </body>
-                </html>',
-                esc_html($site_name),
-                esc_html($display_name),
-                esc_url($reset_link),
-                esc_html($username),
-                esc_url($reset_link),
-                esc_html($site_name),
-                esc_html($site_name)
+                                </html>',
+                esc_html($site_name),      // 1. Welcome to %s
+                esc_html($display_name),   // 2. Hello %s
+                esc_url($reset_link),      // 3. Button href
+                esc_html($username),       // 4. Username value
+                esc_url($reset_link),      // 5. Link href
+                esc_url($reset_link),      // 6. Link text
+                esc_html($site_name),      // 7. The %s Team
+                esc_html($site_name)       // 8. Footer text
             );
             
             // Email headers for HTML
