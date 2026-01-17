@@ -694,7 +694,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       if (response.ok && data.id) {
         const successMessage = isEditing 
           ? `Borrower profile updated successfully!`
-          : `Borrower profile created successfully! New user account created for ${formData.email_address} with temporary password: TempPassword123!`;
+          : `Borrower profile created successfully! New user account created for ${formData.email_address}. A welcome email with password setup instructions has been sent.`;
         
         showSuccess(successMessage);
         
