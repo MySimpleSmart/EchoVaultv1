@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import BorrowerList from './BorrowerList';
 import BorrowerDetail from './BorrowerDetail';
 import BorrowerProfile from './BorrowerProfile';
@@ -12,8 +13,62 @@ const Dashboard = ({
   onEdit, 
   onBack,
   loading,
-  error 
+  error,
+  token 
 }) => {
+  const navigate = useNavigate();
+  const [loans, setLoans] = useState([]);
+  const [loansLoading, setLoansLoading] = useState(false);
+  
+  useEffect(() => {
+    if (!token || currentView !== 'dashboard') return;
+    
+    const fetchLoans = async () => {
+      setLoansLoading(true);
+      try {
+        const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+        const response = await fetch(
+          `${apiBase}/wp/v2/loans?per_page=100&status=publish,draft&context=edit`,
+          { 
+            headers: { 'Authorization': `Bearer ${token}` },
+            mode: 'cors'
+          }
+        );
+        if (response.ok) {
+          const loansData = await response.json();
+          setLoans(loansData || []);
+        }
+      } catch (e) {
+        console.error('Failed to fetch loans for dashboard:', e);
+      } finally {
+        setLoansLoading(false);
+      }
+    };
+    
+    fetchLoans();
+  }, [token, currentView]);
+  
+  // Calculate stats
+  const activeLoans = loans.filter(loan => {
+    const status = loan.loan_status || loan.meta?.loan_status || '';
+    return status && !/^(closed|completed|cancelled)$/i.test(status);
+  });
+  
+  const pendingApplications = loans.filter(loan => {
+    const status = loan.loan_status || loan.meta?.loan_status || '';
+    return status && /^(pending|draft)$/i.test(status);
+  });
+  
+  const totalValue = loans.reduce((sum, loan) => {
+    const amount = parseFloat(loan.loan_amount || loan.meta?.loan_amount || 0);
+    return sum + amount;
+  }, 0);
+  
+  // Default onCreateNew handler if not provided
+  const handleCreateNew = onCreateNew || (() => navigate('/clients/new'));
+  
+  // Default handler for View All Borrowers
+  const handleViewAllBorrowers = () => navigate('/clients');
   // Dashboard overview
   if (currentView === 'dashboard') {
     return (
@@ -47,7 +102,9 @@ const Dashboard = ({
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Active Loans</p>
-                <p className="text-2xl font-bold text-gray-900">0</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {loansLoading ? '...' : activeLoans.length}
+                </p>
               </div>
             </div>
           </div>
@@ -61,7 +118,9 @@ const Dashboard = ({
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Pending Applications</p>
-                <p className="text-2xl font-bold text-gray-900">0</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {loansLoading ? '...' : pendingApplications.length}
+                </p>
               </div>
             </div>
           </div>
@@ -75,7 +134,9 @@ const Dashboard = ({
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Total Value</p>
-                <p className="text-2xl font-bold text-gray-900">$0</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {loansLoading ? '...' : `$${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                </p>
               </div>
             </div>
           </div>
@@ -86,7 +147,7 @@ const Dashboard = ({
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
             <div className="space-y-3">
               <button
-                onClick={() => window.location.reload()}
+                onClick={handleViewAllBorrowers}
                 className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 rounded-lg"
               >
                 <div className="flex items-center">
@@ -103,7 +164,7 @@ const Dashboard = ({
               </button>
 
               <button
-                onClick={onCreateNew}
+                onClick={handleCreateNew}
                 className="w-full flex items-center justify-between p-3 bg-green-50 hover:bg-green-100 rounded-lg"
               >
                 <div className="flex items-center">
@@ -115,6 +176,57 @@ const Dashboard = ({
                   <div className="text-left">
                     <p className="font-medium text-gray-900">Create New Profile</p>
                     <p className="text-sm text-gray-500">Add a new borrower</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => navigate('/loans')}
+                className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
+              >
+                <div className="flex items-center">
+                  <div className="p-2 bg-indigo-100 rounded-lg mr-3">
+                    <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <div className="text-left">
+                    <p className="font-medium text-gray-900">View All Loans</p>
+                    <p className="text-sm text-gray-500">Manage loan applications</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => navigate('/loans/new')}
+                className="w-full flex items-center justify-between p-3 bg-purple-50 hover:bg-purple-100 rounded-lg"
+              >
+                <div className="flex items-center">
+                  <div className="p-2 bg-purple-100 rounded-lg mr-3">
+                    <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </div>
+                  <div className="text-left">
+                    <p className="font-medium text-gray-900">Create a New Loan</p>
+                    <p className="text-sm text-gray-500">Add a new loan application</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => navigate('/notes')}
+                className="w-full flex items-center justify-between p-3 bg-yellow-50 hover:bg-yellow-100 rounded-lg"
+              >
+                <div className="flex items-center">
+                  <div className="p-2 bg-yellow-100 rounded-lg mr-3">
+                    <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </div>
+                  <div className="text-left">
+                    <p className="font-medium text-gray-900">Note</p>
+                    <p className="text-sm text-gray-500">View and manage notes</p>
                   </div>
                 </div>
               </button>

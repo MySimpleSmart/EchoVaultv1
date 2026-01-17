@@ -192,7 +192,7 @@ function MainApp() {
             onNavigateToProfile={() => navigate('/admin-profile')} 
           />
           <Routes>
-            <Route path="/" element={<Dashboard currentView="dashboard" borrowers={borrowers} loading={loading} error={error} />} />
+            <Route path="/" element={<Dashboard currentView="dashboard" borrowers={borrowers} loading={loading} error={error} token={token} onCreateNew={() => navigate('/clients/new')} />} />
             <Route path="/dashboard" element={<Navigate to="/" replace />} />
             
             {/* Client Routes */}
