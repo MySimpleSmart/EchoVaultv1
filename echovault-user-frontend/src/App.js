@@ -193,6 +193,7 @@ function DashboardPage({ token, user }) {
   const [currentLoan, setCurrentLoan] = useState(null);
   const [nextPayment, setNextPayment] = useState(null);
   const [loanPayments, setLoanPayments] = useState([]); // Store next payment for each loan
+  const [currentLoanSchedule, setCurrentLoanSchedule] = useState([]); // Store schedule for current loan
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [latestNews, setLatestNews] = useState(null);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -228,7 +229,7 @@ function DashboardPage({ token, user }) {
           
           // Fetch repayment schedules for all active loans
           const allPayments = [];
-          const loanPaymentMap = []; // Store next payment for each loan
+          const loanPaymentMap = []; // Store next payment and schedule for each loan
           
           for (const loan of activeLoans) {
             try {
@@ -239,13 +240,14 @@ function DashboardPage({ token, user }) {
               if (scheduleResp.ok) {
                 const scheduleJson = await scheduleResp.json();
                 if (scheduleJson.success && scheduleJson.schedule && Array.isArray(scheduleJson.schedule)) {
+                  const schedule = scheduleJson.schedule;
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
                   
                   const loanPayments = [];
                   
                   // Find all unpaid payments for this loan
-                  scheduleJson.schedule.forEach(r => {
+                  schedule.forEach(r => {
                     const status = (r.repayment_status || '').toLowerCase();
                     if (status !== 'paid') {
                       // Use segment_end as payment date (fallback to repayment_date if available)
@@ -274,30 +276,53 @@ function DashboardPage({ token, user }) {
                   });
                   
                   // Find next payment for this loan (earliest unpaid payment)
+                  let nextPayment = null;
                   if (loanPayments.length > 0) {
                     loanPayments.sort((a, b) => {
                       if (a.isOverdue && !b.isOverdue) return -1;
                       if (!a.isOverdue && b.isOverdue) return 1;
                       return a.paymentDate - b.paymentDate;
                     });
-                    loanPaymentMap.push({
-                      loan: loan,
-                      nextPayment: loanPayments[0]
-                    });
-                  } else {
-                    // No unpaid payments for this loan
-                    loanPaymentMap.push({
-                      loan: loan,
-                      nextPayment: null
-                    });
+                    nextPayment = loanPayments[0];
                   }
+                  
+                  // Get remaining balance from schedule (last segment's remain_balance)
+                  let remainingBalance = 0;
+                  if (schedule.length > 0) {
+                    const lastSegment = schedule[schedule.length - 1];
+                    remainingBalance = parseFloat(lastSegment.remain_balance || 0);
+                  }
+                  
+                  loanPaymentMap.push({
+                    loan: loan,
+                    nextPayment: nextPayment,
+                    schedule: schedule,
+                    remainingBalance: remainingBalance
+                  });
+                } else {
+                  // No schedule data
+                  loanPaymentMap.push({
+                    loan: loan,
+                    nextPayment: null,
+                    schedule: [],
+                    remainingBalance: 0
+                  });
                 }
+              } else {
+                loanPaymentMap.push({
+                  loan: loan,
+                  nextPayment: null,
+                  schedule: [],
+                  remainingBalance: 0
+                });
               }
             } catch (e) {
               console.error(`Failed to load repayment schedule for loan ${loan.id}:`, e);
               loanPaymentMap.push({
                 loan: loan,
-                nextPayment: null
+                nextPayment: null,
+                schedule: [],
+                remainingBalance: 0
               });
             }
           }
@@ -316,9 +341,50 @@ function DashboardPage({ token, user }) {
             const next = allPayments[0];
             setCurrentLoan(next.loan);
             setNextPayment(next);
+            
+            // Find and store schedule for current loan to get remaining balance
+            // We already fetched schedules above, find the one for current loan
+            for (const loan of activeLoans) {
+              if (loan.id === next.loan.id) {
+                try {
+                  const currentScheduleResp = await fetch(
+                    `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${loan.id}`,
+                    { headers: { Authorization: `Bearer ${token}` }, mode: 'cors' }
+                  );
+                  if (currentScheduleResp.ok) {
+                    const currentScheduleJson = await currentScheduleResp.json();
+                    if (currentScheduleJson.success && currentScheduleJson.schedule) {
+                      setCurrentLoanSchedule(currentScheduleJson.schedule);
+                    }
+                  }
+                } catch (e) {
+                  console.error('Failed to load schedule for current loan:', e);
+                }
+                break;
+              }
+            }
           } else if (activeLoans.length > 0) {
             // No payments found, but we have active loans - set first active loan
             setCurrentLoan(activeLoans[0]);
+            
+            // Fetch schedule for current loan to get remaining balance
+            try {
+              const currentScheduleResp = await fetch(
+                `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${activeLoans[0].id}`,
+                { headers: { Authorization: `Bearer ${token}` }, mode: 'cors' }
+              );
+              if (currentScheduleResp.ok) {
+                const currentScheduleJson = await currentScheduleResp.json();
+                if (currentScheduleJson.success && currentScheduleJson.schedule) {
+                  setCurrentLoanSchedule(currentScheduleJson.schedule);
+                }
+              }
+            } catch (e) {
+              console.error('Failed to load schedule for current loan:', e);
+            }
+          } else {
+            // No active loans, clear schedule
+            setCurrentLoanSchedule([]);
           }
           
           setPaymentLoading(false);
@@ -712,7 +778,27 @@ function DashboardPage({ token, user }) {
               <p className="text-sm font-medium text-gray-600">Current Loan Balance</p>
               {currentLoan ? (
                 <p className="text-2xl font-bold text-gray-900">
-                  {getCurrencySymbol(currency)}{parseFloat(currentLoan.remaining_balance || currentLoan.meta?.remaining_balance || currentLoan.loan_amount || currentLoan.meta?.loan_amount || 0).toFixed(2)}
+                  {(() => {
+                    // Get remaining balance from schedule if available (most accurate)
+                    let remainingBalance = 0;
+                    if (currentLoanSchedule && currentLoanSchedule.length > 0) {
+                      // Use the last segment's remain_balance (most current)
+                      const lastSegment = currentLoanSchedule[currentLoanSchedule.length - 1];
+                      remainingBalance = parseFloat(lastSegment.remain_balance || 0);
+                    }
+                    
+                    // Fallback to loan data fields if schedule not available
+                    if (remainingBalance === 0) {
+                      remainingBalance = parseFloat(
+                        currentLoan.remaining_balance || 
+                        currentLoan.meta?.remaining_balance || 
+                        currentLoan.meta?.remain_balance || 
+                        0
+                      );
+                    }
+                    
+                    return `${getCurrencySymbol(currency)}${remainingBalance.toFixed(2)}`;
+                  })()}
                 </p>
               ) : (
                 <p className="text-2xl font-bold text-gray-400">No loan</p>
@@ -772,10 +858,29 @@ function DashboardPage({ token, user }) {
         
         {loans.length > 0 && loanPayments.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {loanPayments.map(({ loan, nextPayment: loanNextPayment }) => {
+            {loanPayments.map(({ loan, nextPayment: loanNextPayment, remainingBalance: loanRemainingBalance, schedule: loanSchedule }) => {
               const loanCurrency = loan.loan_currency || loan.meta?.loan_currency || 'AUD';
               const loanCurrencySymbol = getCurrencySymbol(loanCurrency);
-              const loanBalance = parseFloat(loan.remaining_balance || loan.meta?.remaining_balance || loan.loan_amount || loan.meta?.loan_amount || 0);
+              
+              // Get remaining balance - prefer from schedule, fallback to loan data
+              let loanBalance = loanRemainingBalance || 0;
+              if (loanBalance === 0 || isNaN(loanBalance)) {
+                if (loanSchedule && loanSchedule.length > 0) {
+                  // Get from last segment of schedule
+                  const lastSegment = loanSchedule[loanSchedule.length - 1];
+                  loanBalance = parseFloat(lastSegment.remain_balance || 0);
+                }
+                if (loanBalance === 0 || isNaN(loanBalance)) {
+                  // Fallback to loan data
+                  loanBalance = parseFloat(
+                    loan.remaining_balance || 
+                    loan.meta?.remaining_balance || 
+                    loan.meta?.remain_balance || 
+                    0
+                  );
+                }
+              }
+              
               const loanStatus = loan.meta?.loan_status || loan.loan_status || 'Active';
               
               // Calculate total payment for display
@@ -806,15 +911,11 @@ function DashboardPage({ token, user }) {
                 }
               };
               
-              const isCurrentLoan = currentLoan && currentLoan.id === loan.id;
-              
               return (
                 <div
                   key={loan.id}
                   className={`bg-white rounded-lg border-2 p-5 cursor-pointer transition-all hover:shadow-md ${
-                    isCurrentLoan
-                      ? 'border-blue-500 bg-blue-50'
-                      : loanNextPayment?.isOverdue
+                    loanNextPayment?.isOverdue
                       ? 'border-red-300 bg-red-50'
                       : 'border-gray-200'
                   }`}
@@ -825,11 +926,6 @@ function DashboardPage({ token, user }) {
                       <h3 className="font-semibold text-gray-900 mb-1">
                         {loan.title?.rendered || loan.loan_title || `Loan #${loan.id}`}
                       </h3>
-                      {isCurrentLoan && (
-                        <span className="inline-block px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded">
-                          Most Urgent
-                        </span>
-                      )}
                     </div>
                     {loanNextPayment && getStatusBadge(loanNextPayment)}
                   </div>
@@ -1216,9 +1312,11 @@ function LoanDetailPage({ token }) {
                   </div>
                   <div>
                     <p className="text-gray-500">Status</p>
-                    <p className="font-medium text-gray-900 mt-1">
-                      {loan.meta?.loan_status || 'Active'}
-                    </p>
+                    <div className="mt-1">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        {loan.meta?.loan_status || 'Active'}
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <p className="text-gray-500">Repayment Status</p>

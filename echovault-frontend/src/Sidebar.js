@@ -238,7 +238,7 @@ const Sidebar = ({ currentView, setCurrentView, onCreateNew }) => {
       {!sidebarCollapsed && (
         <div className="p-6 border-t border-gray-200">
           <p className="text-xs text-gray-500 text-center">
-            © 2025 EchoVault LMS. Developed by{' '}
+            © 2026 EchoVault LMS. Developed by{' '}
             <a 
               href="https://simplesmart.com.au/" 
               target="_blank" 
