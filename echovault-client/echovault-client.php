@@ -476,18 +476,28 @@ final class EchoVault_Client {
                 $display_name = $username;
             }
             
-            // Get site name and admin email
+            // Get site name and domain
             $site_name = get_bloginfo('name');
-            $admin_email = get_option('admin_email');
+            $site_url = get_site_url();
             
             if (empty($site_name)) {
                 $site_name = 'EchoVault';
             }
             
-            if (empty($admin_email)) {
-                error_log("EchoVault Client: Admin email is empty, cannot send email");
-                return;
+            // Extract domain from site URL for no-reply email
+            $domain = parse_url($site_url, PHP_URL_HOST);
+            if (empty($domain)) {
+                // Fallback to admin email domain if parsing fails
+                $admin_email = get_option('admin_email');
+                if (empty($admin_email)) {
+                    error_log("EchoVault Client: Cannot determine email domain");
+                    return;
+                }
+                $domain = substr(strrchr($admin_email, "@"), 1);
             }
+            
+            // Create no-reply email address
+            $from_email = 'no-reply@' . $domain;
             
             // Email subject
             $subject = sprintf('[%s] Welcome! Set Your Password', $site_name);
@@ -499,11 +509,11 @@ final class EchoVault_Client {
                     <style>
                         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
                         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                        .header { background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+                        .header { background-color: #0d1b2a; color: white !important; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
                         .content { background-color: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none; }
                         .credentials { background-color: white; padding: 20px; margin: 20px 0; border: 2px solid #4F46E5; border-radius: 5px; }
-                        .credentials-label { font-weight: bold; color: #4F46E5; margin-bottom: 10px; }
-                        .credentials-value { font-size: 16px; color: #111; margin: 5px 0; }
+                        .credentials-label { font-weight: bold; color: #0d1b2a; margin-bottom: 10px; }
+                        .credentials-value { font-size: 16px; color: #0d1b2a; margin: 5px 0; }
                         .warning { background-color: #FEF3C7; border-left: 4px solid #F59E0B; padding: 15px; margin: 20px 0; }
                         .footer { text-align: center; padding: 20px; color: #6B7280; font-size: 12px; }
                     </style>
@@ -518,7 +528,7 @@ final class EchoVault_Client {
                             <p>Your account has been successfully created. Please click the button below to set your password and activate your account:</p>
                             
                             <div style="text-align: center; margin: 30px 0;">
-                                <a href="%s" style="display: inline-block; background-color: #4F46E5; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">Create Your Password</a>
+                                <a href="%s" style="display: inline-block; background-color: #0d1b2a; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">Create Your Password</a>
                             </div>
                             
                             <div class="credentials">
@@ -554,7 +564,7 @@ final class EchoVault_Client {
             // Email headers for HTML
             $headers = array(
                 'Content-Type: text/html; charset=UTF-8',
-                'From: ' . $site_name . ' <' . $admin_email . '>'
+                'From: ' . $site_name . ' <' . $from_email . '>'
             );
             
             // Send email
