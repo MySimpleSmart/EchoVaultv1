@@ -410,21 +410,6 @@ function DashboardPage({ token, user }) {
     
     // Determine status using payment data (matching admin side logic)
     const originalStatus = String(payment.repayment_status || 'Pending').trim();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dueDateStr = payment.segment_end || payment.repayment_date || payment.end_date;
-    
-    // Check if due date has passed
-    let isDueDatePassed = false;
-    if (dueDateStr) {
-      try {
-        const dueDate = new Date(dueDateStr);
-        dueDate.setHours(0, 0, 0, 0);
-        isDueDatePassed = dueDate < today;
-      } catch (e) {
-        // Ignore date parsing errors
-      }
-    }
     
     // Check if payment has been made - check payment data first
     const hasPayment = (payment.total_payment && parseFloat(payment.total_payment) > 0) 
@@ -433,19 +418,15 @@ function DashboardPage({ token, user }) {
       || (payment.paid_principles && parseFloat(payment.paid_principles) > 0)
       || (originalStatus.toLowerCase() === 'paid');
     
+    // ONLY 2 STATUSES (matching admin side):
+    // 1. "Paid" (GREEN): Payment has been made
+    // 2. "Pending" (GRAY): No payment made
     let status = 'Pending';
     let statusConfig = { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-300', icon: '○' };
     
     if (hasPayment) {
       status = 'Paid';
-      if (isDueDatePassed) {
-        statusConfig = { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', icon: '✓' };
-      } else {
-        statusConfig = { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300', icon: '✓' };
-      }
-    } else if (isDueDatePassed) {
-      status = 'Overdue';
-      statusConfig = { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', icon: '⚠' };
+      statusConfig = { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300', icon: '✓' };
     } else {
       status = 'Pending';
       statusConfig = { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-300', icon: '○' };
@@ -572,8 +553,39 @@ function DashboardPage({ token, user }) {
           
           {!paymentLoading && currentLoan && !nextPayment && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 w-full flex flex-col">
-              <p className="text-gray-600">No upcoming payments found for your current loan.</p>
-    </div>
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-1">Next Payment</h2>
+                  <p className="text-sm text-gray-600">
+                    {currentLoan.title?.rendered || currentLoan.loan_title || `Loan #${currentLoan.id}`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center justify-center py-8">
+                <p className="text-gray-500">No upcoming payments found for your current loan.</p>
+              </div>
+            </div>
+          )}
+          
+          {!paymentLoading && !currentLoan && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 w-full flex flex-col">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-1">Next Payment</h2>
+                  <p className="text-sm text-gray-600">No active loans</p>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center justify-center py-8">
+                <div className="text-center">
+                  <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-500">No payment information available</p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
@@ -689,36 +701,38 @@ function DashboardPage({ token, user }) {
           </div>
         </div>
         
-        {currentLoan && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-green-100 rounded-lg">
-                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Current Loan Balance</p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center">
+            <div className="p-3 bg-green-100 rounded-lg">
+              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Current Loan Balance</p>
+              {currentLoan ? (
                 <p className="text-2xl font-bold text-gray-900">
                   {getCurrencySymbol(currency)}{parseFloat(currentLoan.remaining_balance || currentLoan.meta?.remaining_balance || currentLoan.loan_amount || currentLoan.meta?.loan_amount || 0).toFixed(2)}
                 </p>
-              </div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-400">No loan</p>
+              )}
             </div>
           </div>
-        )}
+        </div>
         
-        {nextPayment && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className={`p-3 rounded-lg ${
-                nextPayment.isOverdue ? 'bg-red-100' : 'bg-purple-100'
-              }`}>
-                <svg className={`w-6 h-6 ${nextPayment.isOverdue ? 'text-red-600' : 'text-purple-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Days Until Payment</p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center">
+            <div className={`p-3 rounded-lg ${
+              nextPayment?.isOverdue ? 'bg-red-100' : 'bg-purple-100'
+            }`}>
+              <svg className={`w-6 h-6 ${nextPayment?.isOverdue ? 'text-red-600' : 'text-purple-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Days Until Payment</p>
+              {nextPayment ? (
                 <p className={`text-2xl font-bold ${
                   nextPayment.isOverdue ? 'text-red-600' : 'text-gray-900'
                 }`}>
@@ -739,20 +753,24 @@ function DashboardPage({ token, user }) {
                     }
                   })()}
                 </p>
-              </div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-400">No payment</p>
+              )}
             </div>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* All Loans Section - Show when user has multiple loans */}
-      {loans.length > 1 && loanPayments.length > 0 && (
-        <div className="mb-8">
-          <div className="mb-4">
-            <h2 className="text-xl font-bold text-gray-900">All Loans</h2>
-            <p className="text-sm text-gray-600 mt-1">View status and next payment for all your loans</p>
-          </div>
-          
+      {/* My Loans Section - Always show */}
+      <div className="mb-8">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold text-gray-900">My Loans</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            {loans.length > 1 ? 'View status and next payment for all your loans' : loans.length === 1 ? 'View your loan details' : 'You don\'t have any loans yet'}
+          </p>
+        </div>
+        
+        {loans.length > 0 && loanPayments.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {loanPayments.map(({ loan, nextPayment: loanNextPayment }) => {
               const loanCurrency = loan.loan_currency || loan.meta?.loan_currency || 'AUD';
@@ -878,8 +896,20 @@ function DashboardPage({ token, user }) {
               );
             })}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+            <div className="text-center py-8">
+              <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Loans</h3>
+              <p className="text-sm text-gray-500">You don't have any loans at this time.</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -908,77 +938,37 @@ function LoansPage({ token }) {
         const filtered = data.filter((loan) => isLoanForBorrower(loan, profile));
         setLoans(filtered);
 
-        // Fetch repayment schedules for all loans to determine status
+        // Calculate repayment status for all loans based on loan end date (matching admin side logic)
         const statusMap = {};
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         for (const loan of filtered) {
-          try {
-            const scheduleResp = await fetch(
-              `${apiBase}/echovault/v2/get-repayment-schedule?loan_id=${loan.id}`,
-              { headers: { Authorization: `Bearer ${token}` }, mode: 'cors' }
-            );
-            if (scheduleResp.ok) {
-              const scheduleJson = await scheduleResp.json();
-              if (scheduleJson.success && scheduleJson.schedule && Array.isArray(scheduleJson.schedule)) {
-                const schedule = scheduleJson.schedule;
-                
-                // Calculate overall repayment status
-                let overallStatus = 'Pending';
-                let hasOverdue = false;
-                let paidCount = 0;
-                let totalCount = schedule.length;
-
-                schedule.forEach(r => {
-                  const originalStatus = String(r.repayment_status || 'Pending').trim();
-                  const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
-                  
-                  // Check if due date has passed
-                  let isDueDatePassed = false;
-                  if (dueDateStr) {
-                    try {
-                      const dueDate = new Date(dueDateStr);
-                      dueDate.setHours(0, 0, 0, 0);
-                      isDueDatePassed = dueDate < today;
-                    } catch (e) {
-                      // Ignore date parsing errors
-                    }
-                  }
-                  
-                  // Check if payment has been made - check payment data first
-                  const hasPayment = (r.total_payment && parseFloat(r.total_payment) > 0) 
-                    || (r.paid_date && r.paid_date.trim() !== '' && r.paid_date !== '-')
-                    || (r.paid_interest && parseFloat(r.paid_interest) > 0)
-                    || (r.paid_principles && parseFloat(r.paid_principles) > 0)
-                    || (originalStatus.toLowerCase() === 'paid');
-                  
-                  if (hasPayment) {
-                    paidCount++;
-                  } else if (isDueDatePassed) {
-                    hasOverdue = true;
-                  }
-                });
-
-                // Determine overall status (matching admin side logic)
-                if (paidCount === totalCount) {
-                  // All segments paid - check if any was overdue
-                  overallStatus = 'Paid';
-                } else if (hasOverdue) {
-                  // Has unpaid overdue segments
-                  overallStatus = 'Overdue';
-                } else {
-                  // Has pending segments
-                  overallStatus = 'Pending';
-                }
-
-                statusMap[loan.id] = overallStatus;
+          // Calculate overall repayment status based on loan end date
+          let overallStatus = 'Pending';
+          
+          const endDateStr = loan.end_date || loan.meta?.end_date;
+          if (endDateStr) {
+            try {
+              const endDate = new Date(endDateStr);
+              endDate.setHours(0, 0, 0, 0);
+              
+              // Determine repayment status based on loan end date
+              // If current date > loan end date → "Overdue", otherwise → "Pending"
+              if (endDate < today) {
+                // Loan end date has passed
+                overallStatus = 'Overdue';
+              } else {
+                // Loan end date hasn't passed
+                overallStatus = 'Pending';
               }
+            } catch (e) {
+              // If date parsing fails, default to Pending
+              overallStatus = 'Pending';
             }
-          } catch (e) {
-            console.error(`Failed to load schedule for loan ${loan.id}:`, e);
-            statusMap[loan.id] = 'Pending';
           }
+
+          statusMap[loan.id] = overallStatus;
         }
 
         setLoanStatuses(statusMap);
@@ -992,11 +982,10 @@ function LoansPage({ token }) {
   }, [token, profile]);
 
   const getRepaymentStatusBadge = (status) => {
-    // Only 4 statuses: Paid (green or red), Overdue (red), Pending (gray)
-    // Note: "Paid" can be green or red depending on timing, but we'll show green by default
-    // The status passed here should already be calculated correctly
+    // Loan-level repayment status (matching admin side):
+    // 1. "Overdue" (RED): Loan end date has passed
+    // 2. "Pending" (GRAY): Loan end date hasn't passed
     const statusConfig = {
-      'Paid': { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300', icon: '✓' },
       'Overdue': { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', icon: '⚠' },
       'Pending': { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-300', icon: '○' }
     };
@@ -1235,75 +1224,33 @@ function LoanDetailPage({ token }) {
                     <p className="text-gray-500">Repayment Status</p>
                     <div className="mt-1">
                       {(() => {
-                        // Calculate overall repayment status from schedule (matching admin side logic)
+                        // Calculate overall repayment status based on loan end date (matching admin side logic)
                         let overallStatus = 'Pending';
                         let statusClass = 'bg-gray-100 text-gray-800';
-                        let hasOverduePaid = false;
                         
-                        if (schedule && schedule.length > 0) {
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-                          
-                          let allSegmentsPaid = true;
-                          let firstUnpaidSegment = null;
-                          
-                          // Check each segment using payment data
-                          schedule.forEach(r => {
-                            const originalStatus = String(r.repayment_status || 'Pending').trim();
-                            const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
+                        const endDateStr = loan.end_date || loan.meta?.end_date;
+                        if (endDateStr) {
+                          try {
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            const endDate = new Date(endDateStr);
+                            endDate.setHours(0, 0, 0, 0);
                             
-                            // Check if due date has passed
-                            let isDueDatePassed = false;
-                            if (dueDateStr) {
-                              try {
-                                const dueDate = new Date(dueDateStr);
-                                dueDate.setHours(0, 0, 0, 0);
-                                isDueDatePassed = dueDate < today;
-                              } catch (e) {
-                                // Ignore date parsing errors
-                              }
-                            }
-                            
-                            // Check if payment has been made
-                            const hasPayment = (r.total_payment && parseFloat(r.total_payment) > 0) 
-                              || (r.paid_date && r.paid_date.trim() !== '' && r.paid_date !== '-')
-                              || (r.paid_interest && parseFloat(r.paid_interest) > 0)
-                              || (r.paid_principles && parseFloat(r.paid_principles) > 0)
-                              || (originalStatus.toLowerCase() === 'paid');
-                            
-                            if (!hasPayment) {
-                              allSegmentsPaid = false;
-                              if (!firstUnpaidSegment) {
-                                firstUnpaidSegment = r;
-                              }
-                            } else if (isDueDatePassed) {
-                              hasOverduePaid = true;
-                            }
-                          });
-                          
-                          if (allSegmentsPaid) {
-                            overallStatus = 'Paid';
-                            statusClass = hasOverduePaid ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800';
-                          } else if (firstUnpaidSegment) {
-                            const dueDateStr = firstUnpaidSegment.segment_end || firstUnpaidSegment.repayment_date || firstUnpaidSegment.end_date;
-                            let isDueDatePassed = false;
-                            if (dueDateStr) {
-                              try {
-                                const dueDate = new Date(dueDateStr);
-                                dueDate.setHours(0, 0, 0, 0);
-                                isDueDatePassed = dueDate < today;
-                              } catch (e) {
-                                // Ignore date parsing errors
-                              }
-                            }
-                            
-                            if (isDueDatePassed) {
+                            // Determine repayment status based on loan end date
+                            // If current date > loan end date → "Overdue", otherwise → "Pending"
+                            if (endDate < today) {
+                              // Loan end date has passed
                               overallStatus = 'Overdue';
                               statusClass = 'bg-red-100 text-red-800';
                             } else {
+                              // Loan end date hasn't passed
                               overallStatus = 'Pending';
                               statusClass = 'bg-gray-100 text-gray-800';
                             }
+                          } catch (e) {
+                            // If date parsing fails, default to Pending
+                            overallStatus = 'Pending';
+                            statusClass = 'bg-gray-100 text-gray-800';
                           }
                         }
                         
@@ -1466,29 +1413,6 @@ function LoanDetailPage({ token }) {
               {schedule.map((r, index) => {
                     // Determine status and badge color - match admin side logic exactly
                     const originalStatus = String(r.repayment_status || 'Pending').trim();
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const dueDateStr = r.segment_end || r.repayment_date || r.end_date;
-                    
-                    // Check if due date has passed
-                    let isDueDatePassed = false;
-                    if (dueDateStr) {
-                      try {
-                        const dueDate = new Date(dueDateStr);
-                        dueDate.setHours(0, 0, 0, 0);
-                        isDueDatePassed = dueDate < today;
-                      } catch (e) {
-                        // Ignore date parsing errors
-                      }
-                    }
-                    
-                    // Determine display status - ONLY 4 BADGES (matching admin side):
-                    // 1. Pending - gray (no payment made and due date hasn't passed)
-                    // 2. Paid - green (payment made and due date hasn't passed)
-                    // 3. Paid - red (payment made but due date has passed)
-                    // 4. Overdue - red (no payment made and due date has passed)
-                    let displayStatus = 'Pending';
-                    let statusClass = 'bg-gray-100 text-gray-800';
                     
                     // Check if payment has been made - check payment data first
                     const hasPayment = (r.total_payment && parseFloat(r.total_payment) > 0) 
@@ -1497,24 +1421,16 @@ function LoanDetailPage({ token }) {
                       || (r.paid_principles && parseFloat(r.paid_principles) > 0)
                       || (originalStatus.toLowerCase() === 'paid');
                     
+                    // ONLY 2 STATUSES (matching admin side):
+                    // 1. "Paid" (GREEN): Payment has been made
+                    // 2. "Pending" (GRAY): No payment made
+                    let displayStatus = 'Pending';
+                    let statusClass = 'bg-gray-100 text-gray-800';
+                    
                     if (hasPayment) {
-                      // Payment has been made - check if it was overdue
-                      if (isDueDatePassed) {
-                        displayStatus = 'Paid'; // RED badge (paid but overdue)
-                        statusClass = 'bg-red-100 text-red-800';
-                      } else {
-                        displayStatus = 'Paid'; // GREEN badge (paid on time)
-                        statusClass = 'bg-green-100 text-green-800';
-                      }
-                    } 
-                    // No payment made - check if overdue
-                    else if (isDueDatePassed) {
-                      // Not paid AND overdue = "Overdue" with RED badge
-                      displayStatus = 'Overdue';
-                      statusClass = 'bg-red-100 text-red-800';
-                    } 
-                    // Not paid and not overdue = "Pending" with GRAY badge
-                    else {
+                      displayStatus = 'Paid';
+                      statusClass = 'bg-green-100 text-green-800';
+                    } else {
                       displayStatus = 'Pending';
                       statusClass = 'bg-gray-100 text-gray-800';
                     }
