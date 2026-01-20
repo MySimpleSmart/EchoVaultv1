@@ -19,13 +19,6 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
       // Check both document_upload field and meta.document_upload
       const documentUpload = borrower?.document_upload || borrower?.meta?.document_upload;
       
-      console.log('Borrower document data:', {
-        document_upload: borrower?.document_upload,
-        meta_document_upload: borrower?.meta?.document_upload,
-        resolved_document_upload: documentUpload,
-        full_borrower_data: borrower
-      });
-      
       if (documentUpload) {
         
         if (typeof documentUpload === 'number' || 
@@ -538,10 +531,6 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                console.log('Eye button clicked, mediaDetails:', mediaDetails);
-                                console.log('Borrower data:', borrower);
-                                console.log('Borrower document_upload:', borrower?.document_upload);
-                                console.log('Document upload type:', typeof borrower?.document_upload);
                                 setShowDocumentViewer(true);
                               }}
                               className="ml-4 p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"

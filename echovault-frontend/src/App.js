@@ -11,6 +11,7 @@ import CreateLoan from './CreateLoan';
 import LoanContract from './LoanContract';
 import BankAccounts from './BankAccounts';
 import Notes from './Notes';
+import News from './News';
 import Reports from './Reports';
 import Settings from './Settings';
 import AdminProfile from './AdminProfile';
@@ -69,6 +70,7 @@ function MainApp() {
         'loan-contract': '/loan-contract',
         'bank-accounts': '/bank-accounts',
         'notes': '/notes',
+        'news': '/news',
         'reports': '/reports',
         'settings': '/settings',
         'admin-profile': '/admin-profile'
@@ -144,6 +146,7 @@ function MainApp() {
     if (path === '/loan-contract') return 'loan-contract';
     if (path === '/bank-accounts') return 'bank-accounts';
     if (path === '/notes') return 'notes';
+    if (path === '/news') return 'news';
     if (path === '/reports') return 'reports';
     if (path === '/settings') return 'settings';
     if (path === '/admin-profile') return 'admin-profile';
@@ -171,6 +174,7 @@ function MainApp() {
               'loan-contract': '/loan-contract',
               'bank-accounts': '/bank-accounts',
               'notes': '/notes',
+              'news': '/news',
               'reports': '/reports',
               'settings': '/settings',
               'admin-profile': '/admin-profile'
@@ -289,6 +293,7 @@ function MainApp() {
               }
             }} /></div>} />
             <Route path="/notes" element={<div className="p-6"><Notes token={token} /></div>} />
+            <Route path="/news" element={<News />} />
             <Route path="/reports" element={<div className="p-6"><Reports /></div>} />
             <Route path="/settings" element={<div className="p-6"><Settings /></div>} />
             <Route path="/admin-profile" element={<div className="p-6"><AdminProfile user={user} token={token} /></div>} />

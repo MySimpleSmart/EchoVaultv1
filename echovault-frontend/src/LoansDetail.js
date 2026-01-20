@@ -73,55 +73,23 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
         borrowerId = toId(loanJson.borrower.id) || toId(loanJson.borrower.ID);
       }
       
-      console.log('LoansDetail: Extracted borrower ID:', borrowerId, 'from loan:', { 
-        meta_borrower_id: loanJson.meta?.borrower_id,
-        borrower: loanJson.borrower,
-        meta_borrower: loanJson.meta?.borrower,
-        meta_borrower_profile: loanJson.meta?.borrower_profile,
-        fields_borrower_id: loanJson.fields?.borrower_id,
-        acf_borrower_id: loanJson.acf?.borrower_id,
-        full_meta: loanJson.meta
-      });
-      
       if (borrowerId) {
         try {
           const bResp = await fetch(`${apiBase}/wp/v2/borrower-profile/${borrowerId}?context=edit`, { headers, mode: 'cors' });
           if (bResp.ok) {
             const borrowerData = await bResp.json();
-            console.log('LoansDetail: Successfully fetched borrower:', borrowerData);
             setBorrower(borrowerData);
           } else {
             const errorText = await bResp.text();
             console.error('LoansDetail: Failed to fetch borrower profile:', bResp.status, bResp.statusText, errorText);
-            console.log('LoansDetail: Loan has borrower meta fields:', {
-              borrower_first_name: loanJson.meta?.borrower_first_name,
-              borrower_last_name: loanJson.meta?.borrower_last_name,
-              borrower_email: loanJson.meta?.borrower_email,
-              borrower_phone: loanJson.meta?.borrower_phone,
-              borrower_name: loanJson.borrower_name
-            });
             // Don't set error state, but log it - borrower details might still be available in loan meta
           }
         } catch (fetchError) {
           console.error('LoansDetail: Error fetching borrower profile:', fetchError);
-          console.log('LoansDetail: Loan has borrower meta fields:', {
-            borrower_first_name: loanJson.meta?.borrower_first_name,
-            borrower_last_name: loanJson.meta?.borrower_last_name,
-            borrower_email: loanJson.meta?.borrower_email,
-            borrower_phone: loanJson.meta?.borrower_phone,
-            borrower_name: loanJson.borrower_name
-          });
           // Don't set error state - borrower details might still be available in loan meta
         }
       } else {
         console.warn('LoansDetail: No borrower ID found in loan data. Loan meta:', loanJson.meta);
-        console.log('LoansDetail: Checking for borrower info in loan directly:', {
-          borrower_name: loanJson.borrower_name,
-          borrower_first_name: loanJson.meta?.borrower_first_name,
-          borrower_last_name: loanJson.meta?.borrower_last_name,
-          borrower_email: loanJson.meta?.borrower_email,
-          borrower_phone: loanJson.meta?.borrower_phone
-        });
       }
       // Fetch co-borrower if selected
       const coStatus = toPrimitive(loanJson.co_borrower_status) || toPrimitive(loanJson.meta?.co_borrower_status);

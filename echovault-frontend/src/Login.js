@@ -79,7 +79,6 @@ const Login = ({ onLoginSuccess }) => {
           
           if (tokenResponse.ok) {
             const tokenData = await tokenResponse.json();
-            console.log('Token validation response:', tokenData);
             const tokenEmail = tokenData.data?.user_email || tokenData.user_email || '';
             if (tokenEmail) userEmail = tokenEmail;
           }
@@ -97,11 +96,8 @@ const Login = ({ onLoginSuccess }) => {
             
             if (userResponse.ok) {
               const userProfile = await userResponse.json();
-              console.log('User profile response:', userProfile);
               const profileEmail = userProfile.email || userProfile.user_email || '';
               if (profileEmail) userEmail = profileEmail;
-            } else {
-              console.log('User profile fetch failed:', userResponse.status, userResponse.statusText);
             }
           }
           
@@ -111,7 +107,6 @@ const Login = ({ onLoginSuccess }) => {
             user_email: userEmail,
             email: userEmail
           };
-          console.log('Storing user data:', userData);
           localStorage.setItem('user', JSON.stringify(userData));
           
           // Handle remember me functionality

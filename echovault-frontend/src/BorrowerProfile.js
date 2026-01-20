@@ -112,7 +112,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       
       // Store existing document info for display
       if (editingBorrower.document_upload) {
-        console.log('Setting existingDocument to:', editingBorrower.document_upload);
         setExistingDocument(editingBorrower.document_upload);
         
         // Fetch media details if it's a media ID
@@ -156,14 +155,8 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       const file = files[0];
       
       // NO FILE VALIDATION - ACCEPT ALL FILES
-      console.log('File selected:', {
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size
-      });
       
       // Store file TEMPORARILY - DON'T upload yet
-      console.log('File stored temporarily:', file.name);
       
       // Store file temporarily in formData
       setFormData(prev => ({
@@ -338,7 +331,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       }
 
       // NO FILE VALIDATION - ACCEPT ALL FILES
-      console.log('File validation removed - accepting all file types');
     }
 
     // Document upload is optional for both new and existing borrowers
@@ -450,8 +442,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       
       // Check if we have a temporary file to upload
       if (formData.tempUploadedFile && formData.tempUploadedFile.isTemporary) {
-        console.log('Uploading temporary file:', formData.tempUploadedFile.name);
-        
         try {
           setUploadingDocument(true);
           setUploadProgress(0);
@@ -480,7 +470,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
 
           if (mediaResponse.ok) {
             const mediaData = await mediaResponse.json();
-            console.log('Document uploaded successfully:', mediaData);
             
             // Use the uploaded media ID
             documentMediaId = mediaData.id;
@@ -586,10 +575,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         borrower_id: borrowerId
       };
 
-      // Debug logging
-      console.log('Generated Borrower ID:', borrowerId);
-      console.log('Borrower Data being sent:', borrowerData);
-
       // Also add borrower_id, avatar, and document_upload as meta data to ensure they're saved
       borrowerData.meta = {
         borrower_id: borrowerId
@@ -600,7 +585,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
       if (!isEditing) {
         // Generate random avatar for new borrowers
         avatarToSave = getRandomAvatar();
-        console.log('Generated random avatar for new borrower:', avatarToSave);
       } else if (editingBorrower) {
         // Preserve existing avatar when editing
         avatarToSave = editingBorrower.avatar || 
@@ -608,20 +592,17 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                        editingBorrower.fields?.avatar ||
                        (Array.isArray(editingBorrower.avatar) ? editingBorrower.avatar[0] : null) ||
                        (Array.isArray(editingBorrower.meta?.avatar) ? editingBorrower.meta.avatar[0] : null);
-        console.log('Preserving existing avatar for edit:', avatarToSave);
       }
       
       // Always set avatar (new, existing, or fallback)
       if (!avatarToSave) {
         // Fallback: generate one if somehow missing
         avatarToSave = getRandomAvatar();
-        console.log('Using fallback avatar:', avatarToSave);
       }
       
       // Set avatar in both top-level and meta to ensure it's saved
       borrowerData.avatar = avatarToSave;
       borrowerData.meta.avatar = avatarToSave;
-      console.log('Avatar being saved:', avatarToSave);
       
       // Add document upload to meta as well
       if (documentMediaId) {
@@ -655,15 +636,9 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         }
       });
       
-      // Debug final borrower data - specifically check avatar
-      console.log('Final borrower data before API call:', borrowerData);
-      console.log('Avatar field in borrowerData:', borrowerData.avatar);
-      console.log('Avatar in meta:', borrowerData.meta?.avatar);
-
       // Add document upload if available
       if (documentMediaId) {
         borrowerData.document_upload = documentMediaId;
-        console.log('Document Media ID being sent:', documentMediaId);
       }
 
       const url = isEditing 
@@ -685,12 +660,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
 
       const data = await response.json();
 
-      // Debug logging for API response
-      console.log('API Response:', data);
-      console.log('Response Status:', response.status);
-      console.log('Request Data Sent:', borrowerData);
-      console.log('Avatar in API Response:', data.avatar || data.meta?.avatar || data.fields?.avatar);
-
       if (response.ok && data.id) {
         const successMessage = isEditing 
           ? `Borrower profile updated successfully!`
@@ -701,7 +670,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
         // Store the created/updated borrower ID for future reference, including avatar from response
         const savedAvatar = data.avatar || data.meta?.avatar || data.fields?.avatar || borrowerData.avatar;
         const profileWithId = { ...formData, id: data.id, userId: userId, avatar: savedAvatar };
-        console.log('Saved profile with avatar:', savedAvatar);
         localStorage.setItem('borrower_profile', JSON.stringify(profileWithId));
         
         // Call the callback to proceed to the next step
@@ -892,7 +860,7 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                 <p className="text-sm text-gray-500 mt-2">
                   {isEditing 
                     ? "Email address cannot be changed after registration as it's linked to the user account."
-                    : "Enter the borrower's email address. This will be used to create their WordPress user account and login credentials. Cannot be changed after registration."
+                    : "Enter the borrower's email address."
                   }
                 </p>
             </div>
@@ -1133,7 +1101,6 @@ const BorrowerProfile = ({ userEmail, onProfileComplete, onCancel, editingBorrow
                           type="button"
                           onClick={(e) => {
                             e.preventDefault();
-                            console.log('Eye button clicked in BorrowerProfile, existingMediaDetails:', existingMediaDetails);
                             setShowDocumentViewer(true);
                           }}
                           className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"

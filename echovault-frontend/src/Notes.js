@@ -92,7 +92,6 @@ const Notes = ({ token }) => {
 
       for (const endpoint of possibleEndpoints) {
         try {
-          console.log(`Trying endpoint: ${apiBase}/wp/v2/${endpoint}`);
           response = await fetch(`${apiBase}/wp/v2/${endpoint}?status=publish,draft&per_page=100`, {
             method: 'GET',
             headers: {
@@ -103,13 +102,10 @@ const Notes = ({ token }) => {
 
           if (response.ok) {
             data = await response.json();
-            console.log(`Success with endpoint: ${endpoint}`, data);
             break;
-          } else {
-            console.log(`Failed with endpoint ${endpoint}: ${response.status} ${response.statusText}`);
           }
         } catch (endpointErr) {
-          console.log(`Error with endpoint ${endpoint}:`, endpointErr);
+          // Continue trying next endpoint
         }
       }
 
@@ -358,7 +354,6 @@ const Notes = ({ token }) => {
 
       for (const endpoint of possibleEndpoints) {
         try {
-          console.log(`Trying to create note with endpoint: ${apiBase}/wp/v2/${endpoint}`);
           response = await fetch(`${apiBase}/wp/v2/${endpoint}`, {
             method: 'POST',
             headers: {
@@ -370,14 +365,10 @@ const Notes = ({ token }) => {
 
           if (response.ok) {
             success = true;
-            console.log(`Success creating note with endpoint: ${endpoint}`);
             break;
-          } else {
-            const errorText = await response.text();
-            console.log(`Failed creating note with endpoint ${endpoint}: ${response.status} ${response.statusText} - ${errorText}`);
           }
         } catch (endpointErr) {
-          console.log(`Error creating note with endpoint ${endpoint}:`, endpointErr);
+          // Continue trying next endpoint
         }
       }
 

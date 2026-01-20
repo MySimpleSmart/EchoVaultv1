@@ -144,7 +144,6 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Borrowers API response:', data);
         setBorrowers(data);
       } else {
         setError('Failed to fetch borrowers. Please try again.');
