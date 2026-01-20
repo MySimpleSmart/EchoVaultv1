@@ -30,8 +30,10 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
     setCurrentPage(1);
   }, [borrowers, searchTerm, statusFilter, documentTypeFilter]);
 
-  // Get verification statistics for the dashboard
+  // Get verification statistics
   const verificationStats = getVerificationStats(borrowers);
+  const verifiedCount = verificationStats.verified;
+  const unverifiedCount = verificationStats.total - verificationStats.verified;
 
   // Filter and search function
   const filterBorrowers = () => {
@@ -199,6 +201,11 @@ const BorrowerList = ({ onSelectBorrower, onCreateNew }) => {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Client List</h1>
               <p className="text-gray-600">Manage and view client profiles and loan information</p>
+              <p className="text-sm text-gray-600 mt-2">
+                <span className="text-green-600 font-medium">{verifiedCount} verified</span>
+                {' • '}
+                <span className="text-gray-500">{unverifiedCount} unverified</span>
+              </p>
             </div>
             <button
               onClick={onCreateNew}
