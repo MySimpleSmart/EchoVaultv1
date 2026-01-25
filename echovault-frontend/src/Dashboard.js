@@ -19,6 +19,15 @@ const Dashboard = ({
   const navigate = useNavigate();
   const [loans, setLoans] = useState([]);
   const [loansLoading, setLoansLoading] = useState(false);
+  const [systemStatus, setSystemStatus] = useState({
+    backend: { status: 'checking', message: 'Checking...' },
+    database: { status: 'checking', message: 'Checking...' },
+    fileStorage: { status: 'checking', message: 'Checking...' }
+  });
+  const [recentClients, setRecentClients] = useState([]);
+  const [recentNotes, setRecentNotes] = useState([]);
+  const [recentLoans, setRecentLoans] = useState([]);
+  const [recentLoading, setRecentLoading] = useState(false);
   
   useEffect(() => {
     if (!token || currentView !== 'dashboard') return;
@@ -46,6 +55,168 @@ const Dashboard = ({
     };
     
     fetchLoans();
+  }, [token, currentView]);
+
+  // Check system status
+  useEffect(() => {
+    if (!token || currentView !== 'dashboard') return;
+
+    const checkSystemStatus = async () => {
+      const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+      
+      // Check Backend Connection
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const backendResponse = await fetch(`${apiBase}/wp/v2/`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          mode: 'cors',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (backendResponse.ok) {
+          setSystemStatus(prev => ({
+            ...prev,
+            backend: { status: 'online', message: 'Connected' }
+          }));
+        } else {
+          setSystemStatus(prev => ({
+            ...prev,
+            backend: { status: 'error', message: 'Connection Failed' }
+          }));
+        }
+      } catch (error) {
+        setSystemStatus(prev => ({
+          ...prev,
+          backend: { status: 'error', message: 'Connection Failed' }
+        }));
+      }
+
+      // Check Database (by trying to fetch a simple endpoint)
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const dbResponse = await fetch(`${apiBase}/wp/v2/loans?per_page=1`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          mode: 'cors',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (dbResponse.ok) {
+          setSystemStatus(prev => ({
+            ...prev,
+            database: { status: 'online', message: 'Online' }
+          }));
+        } else {
+          setSystemStatus(prev => ({
+            ...prev,
+            database: { status: 'error', message: 'Offline' }
+          }));
+        }
+      } catch (error) {
+        setSystemStatus(prev => ({
+          ...prev,
+          database: { status: 'error', message: 'Offline' }
+        }));
+      }
+
+      // Check File Storage (by checking if media endpoint is accessible)
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const storageResponse = await fetch(`${apiBase}/wp/v2/media?per_page=1`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          mode: 'cors',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (storageResponse.ok) {
+          setSystemStatus(prev => ({
+            ...prev,
+            fileStorage: { status: 'online', message: 'Available' }
+          }));
+        } else {
+          setSystemStatus(prev => ({
+            ...prev,
+            fileStorage: { status: 'error', message: 'Unavailable' }
+          }));
+        }
+      } catch (error) {
+        setSystemStatus(prev => ({
+          ...prev,
+          fileStorage: { status: 'error', message: 'Unavailable' }
+        }));
+      }
+    };
+
+    checkSystemStatus();
+  }, [token, currentView]);
+
+  // Fetch recent data
+  useEffect(() => {
+    if (!token || currentView !== 'dashboard') return;
+
+    const fetchRecentData = async () => {
+      setRecentLoading(true);
+      const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
+      const headers = { 'Authorization': `Bearer ${token}` };
+
+      try {
+        // Fetch recent clients (borrowers) - last 5, ordered by date
+        try {
+          const clientsResponse = await fetch(
+            `${apiBase}/wp/v2/borrower-profile?per_page=5&orderby=date&order=desc&context=edit`,
+            { headers, mode: 'cors' }
+          );
+          if (clientsResponse.ok) {
+            const clientsData = await clientsResponse.json();
+            setRecentClients(clientsData || []);
+          }
+        } catch (e) {
+          // Silently handle error
+        }
+
+        // Fetch recent notes - last 5, ordered by date
+        try {
+          const possibleEndpoints = ['notes', 'note-system', 'note'];
+          for (const endpoint of possibleEndpoints) {
+            try {
+              const notesResponse = await fetch(
+                `${apiBase}/wp/v2/${endpoint}?per_page=5&orderby=date&order=desc&status=publish,draft`,
+                { headers, mode: 'cors' }
+              );
+              if (notesResponse.ok) {
+                const notesData = await notesResponse.json();
+                setRecentNotes(notesData || []);
+                break;
+              }
+            } catch (e) {
+              // Continue to next endpoint
+            }
+          }
+        } catch (e) {
+          // Silently handle error
+        }
+
+        // Fetch recent loans - last 5, ordered by date
+        try {
+          const loansResponse = await fetch(
+            `${apiBase}/wp/v2/loans?per_page=5&orderby=date&order=desc&status=publish,draft&context=edit`,
+            { headers, mode: 'cors' }
+          );
+          if (loansResponse.ok) {
+            const loansData = await loansResponse.json();
+            setRecentLoans(loansData || []);
+          }
+        } catch (e) {
+          // Silently handle error
+        }
+      } finally {
+        setRecentLoading(false);
+      }
+    };
+
+    fetchRecentData();
   }, [token, currentView]);
   
   // Calculate stats
@@ -139,6 +310,166 @@ const Dashboard = ({
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Recent Activity Boards */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Recent Clients */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Recent Clients</h3>
+              <button
+                onClick={() => navigate('/clients')}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                View All
+              </button>
+            </div>
+            {recentLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-500 mt-2">Loading...</p>
+              </div>
+            ) : recentClients.length > 0 ? (
+              <div className="space-y-3">
+                {recentClients.map((client) => {
+                  const fullName = `${client.first_name || client.meta?.first_name || ''} ${client.last_name || client.meta?.last_name || ''}`.trim() || client.title?.rendered || 'Unknown Client';
+                  const createdDate = client.date || client.date_gmt || '';
+                  const formattedDate = createdDate ? new Date(createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+                  
+                  return (
+                    <div
+                      key={client.id}
+                      onClick={() => navigate(`/clients/${client.id}`)}
+                      className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{fullName}</p>
+                          <p className="text-xs text-gray-500 mt-1">{formattedDate}</p>
+                        </div>
+                        <svg className="w-5 h-5 text-gray-400 ml-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-500">No recent clients</p>
+              </div>
+            )}
+          </div>
+
+          {/* Recent Notes */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Recent Notes</h3>
+              <button
+                onClick={() => navigate('/notes')}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                View All
+              </button>
+            </div>
+            {recentLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-500 mt-2">Loading...</p>
+              </div>
+            ) : recentNotes.length > 0 ? (
+              <div className="space-y-3">
+                {recentNotes.map((note) => {
+                  const noteTitle = note.note_title || note.title?.rendered || note.title || 'Untitled Note';
+                  const noteType = note.note_type || note.meta?.note_type || 'General';
+                  const createdDate = note.date || note.date_gmt || '';
+                  const formattedDate = createdDate ? new Date(createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+                  
+                  return (
+                    <div
+                      key={note.id}
+                      onClick={() => navigate('/notes')}
+                      className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{noteTitle}</p>
+                          <div className="flex items-center mt-1 space-x-2">
+                            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded">{noteType}</span>
+                            <span className="text-xs text-gray-500">{formattedDate}</span>
+                          </div>
+                        </div>
+                        <svg className="w-5 h-5 text-gray-400 ml-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-500">No recent notes</p>
+              </div>
+            )}
+          </div>
+
+          {/* Recent Loans */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Recent Loans</h3>
+              <button
+                onClick={() => navigate('/loans')}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                View All
+              </button>
+            </div>
+            {recentLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-500 mt-2">Loading...</p>
+              </div>
+            ) : recentLoans.length > 0 ? (
+              <div className="space-y-3">
+                {recentLoans.map((loan) => {
+                  const loanId = loan.loan_id || loan.meta?.loan_id || loan.title?.rendered || `#${loan.id}`;
+                  const loanAmount = loan.loan_amount || loan.meta?.loan_amount || 0;
+                  const loanStatus = loan.loan_status || loan.meta?.loan_status || 'Active';
+                  const createdDate = loan.date || loan.date_gmt || '';
+                  const formattedDate = createdDate ? new Date(createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+                  
+                  return (
+                    <div
+                      key={loan.id}
+                      onClick={() => navigate(`/loans/${loan.id}`)}
+                      className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{loanId}</p>
+                          <div className="flex items-center mt-1 space-x-2">
+                            <span className="text-xs text-gray-600">${parseFloat(loanAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="text-xs px-2 py-0.5 bg-green-100 text-green-800 rounded">{loanStatus}</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">{formattedDate}</p>
+                        </div>
+                        <svg className="w-5 h-5 text-gray-400 ml-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-500">No recent loans</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -236,17 +567,47 @@ const Dashboard = ({
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">System Status</h3>
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div className={`flex items-center justify-between p-3 rounded-lg ${
+                systemStatus.backend.status === 'online' ? 'bg-green-50' :
+                systemStatus.backend.status === 'error' ? 'bg-red-50' :
+                'bg-gray-50'
+              }`}>
                 <span className="text-sm font-medium text-gray-900">Backend Connection</span>
-                <span className="text-sm text-green-600 font-medium">Connected</span>
+                <span className={`text-sm font-medium ${
+                  systemStatus.backend.status === 'online' ? 'text-green-600' :
+                  systemStatus.backend.status === 'error' ? 'text-red-600' :
+                  'text-gray-600'
+                }`}>
+                  {systemStatus.backend.message}
+                </span>
               </div>
-              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div className={`flex items-center justify-between p-3 rounded-lg ${
+                systemStatus.database.status === 'online' ? 'bg-green-50' :
+                systemStatus.database.status === 'error' ? 'bg-red-50' :
+                'bg-gray-50'
+              }`}>
                 <span className="text-sm font-medium text-gray-900">Database</span>
-                <span className="text-sm text-green-600 font-medium">Online</span>
+                <span className={`text-sm font-medium ${
+                  systemStatus.database.status === 'online' ? 'text-green-600' :
+                  systemStatus.database.status === 'error' ? 'text-red-600' :
+                  'text-gray-600'
+                }`}>
+                  {systemStatus.database.message}
+                </span>
               </div>
-              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div className={`flex items-center justify-between p-3 rounded-lg ${
+                systemStatus.fileStorage.status === 'online' ? 'bg-green-50' :
+                systemStatus.fileStorage.status === 'error' ? 'bg-red-50' :
+                'bg-gray-50'
+              }`}>
                 <span className="text-sm font-medium text-gray-900">File Storage</span>
-                <span className="text-sm text-green-600 font-medium">Available</span>
+                <span className={`text-sm font-medium ${
+                  systemStatus.fileStorage.status === 'online' ? 'text-green-600' :
+                  systemStatus.fileStorage.status === 'error' ? 'text-red-600' :
+                  'text-gray-600'
+                }`}>
+                  {systemStatus.fileStorage.message}
+                </span>
               </div>
             </div>
           </div>
