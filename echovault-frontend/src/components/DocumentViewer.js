@@ -5,9 +5,6 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
   const [error, setError] = useState('');
   const [fetchedMediaData, setFetchedMediaData] = useState(null);
 
-  // Debug logging
-  console.log('DocumentViewer props:', { isOpen, documentData });
-
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -38,13 +35,6 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
           mediaId = parseInt(mediaId);
         }
       }
-      
-      console.log('Attempting to fetch media details:', {
-        documentData: documentData,
-        mediaId: mediaId,
-        hasSourceUrl: !!documentData?.source_url,
-        hasGuid: !!documentData?.guid?.rendered
-      });
 
       if (isOpen && mediaId && !documentData.source_url && !documentData.guid?.rendered) {
         setLoading(true);
@@ -60,13 +50,10 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
           
           if (response.ok) {
             const mediaData = await response.json();
-            console.log('Fetched media data:', mediaData);
             setFetchedMediaData(mediaData);
-          } else {
-            console.error('Failed to fetch media details:', response.status);
           }
         } catch (err) {
-          console.error('Error fetching media details:', err);
+          // Silently handle fetch errors
         } finally {
           setLoading(false);
         }
@@ -105,11 +92,8 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
         link.click();
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
-      } else {
-        console.error('Failed to download file:', response.status);
       }
     } catch (error) {
-      console.error('Download error:', error);
       // Fallback to regular download
       window.open(documentUrl, '_blank');
     }
@@ -155,18 +139,6 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
     // Try to get a proper filename from other fields
     const properFileName = currentData.post_name || currentData.post_title || fileName;
     
-    console.log('Constructing fallback URL:', {
-      siteUrl,
-      uploadDate,
-      fileName: properFileName,
-      post_date: currentData.post_date,
-      post_name: currentData.post_name,
-      post_title: currentData.post_title,
-      currentData: currentData,
-      originalId: currentData.ID,
-      idType: typeof currentData.ID
-    });
-    
     // Try different URL patterns
     if (uploadDate && properFileName && properFileName !== '[object Object]') {
       documentUrl = `${siteUrl}/wp-content/uploads/${uploadDate}/${properFileName}`;
@@ -187,17 +159,6 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
                      
   const documentTitle = currentData.title?.rendered || currentData.post_title || currentData.title;
   const documentMimeType = currentData.mime_type || currentData.post_mime_type;
-
-  console.log('DocumentViewer data:', {
-    fileType,
-    documentUrl,
-    documentTitle,
-    documentMimeType,
-    availableFields: Object.keys(currentData),
-    fullData: currentData,
-    fetchedMediaData: fetchedMediaData,
-    originalData: documentData
-  });
 
   return (
     <div 
@@ -253,10 +214,8 @@ const DocumentViewer = ({ isOpen, onClose, documentData }) => {
                     style={{ minHeight: '200px', minWidth: '200px' }}
                     onLoad={() => {
                       setLoading(false);
-                      console.log('Image loaded successfully:', documentUrl);
                     }}
-                    onError={(e) => {
-                      console.error('Image failed to load:', documentUrl, e);
+                    onError={() => {
                       setError('Failed to load image');
                     }}
                   />

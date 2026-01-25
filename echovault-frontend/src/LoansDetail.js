@@ -241,6 +241,54 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
     fetchPaymentHistory();
   }, [loan, token, loanId]);
 
+  // Helper function to calculate maximum available interest for payment
+  const calculateMaxAvailableInterest = (segment, paymentDateStr) => {
+    const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
+    const segmentEnd = segment.segment_end;
+    
+    // Scheduled interest for the segment period
+    const scheduledInterest = parseFloat(segment.accrued_interest || 0);
+    
+    // Interest already paid for this segment
+    const paidInterest = parseFloat(segment.paid_interest || 0);
+    
+    // Outstanding interest (unpaid from previous periods or this segment)
+    const outstandingInterest = parseFloat(segment.outstanding_interest || 0);
+    
+    // Calculate remaining scheduled interest (not yet paid)
+    const remainingScheduledInterest = Math.max(0, scheduledInterest - paidInterest);
+    
+    // Available interest = max of (remaining scheduled, outstanding) + extended period interest
+    // This handles cases where:
+    // - No payment made: remaining = scheduled, outstanding = 0, so use remaining
+    // - Partial payment: remaining = scheduled - paid, outstanding may be set, use max
+    // - Outstanding from previous: outstanding > 0, use outstanding
+    let interestAvailable = Math.max(remainingScheduledInterest, outstandingInterest);
+    
+    // If payment date is after segment_end, calculate additional interest for extended period
+    if (paymentDateStr && segmentEnd && segment.segment_start) {
+      try {
+        const paymentDate = new Date(paymentDateStr);
+        const segmentEndDate = new Date(segmentEnd);
+        
+        // If payment is after segment end, add interest for the extended period
+        if (paymentDate > segmentEndDate) {
+          const balanceForInterest = parseFloat(segment.remain_balance || segment.start_balance || 0);
+          const extendedDays = Math.max(0, Math.ceil((paymentDate - segmentEndDate) / (1000 * 60 * 60 * 24)));
+          
+          if (loanInterest > 0 && balanceForInterest > 0 && extendedDays > 0) {
+            const extendedInterest = balanceForInterest * loanInterest * (extendedDays / 30);
+            interestAvailable += extendedInterest;
+          }
+        }
+      } catch (e) {
+        console.warn('Error calculating extended interest:', e);
+      }
+    }
+    
+    return interestAvailable;
+  };
+
   // Register payment
   const registerPayment = async () => {
     if (!selectedSegment || !token || !loanId) return;
@@ -260,32 +308,13 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
       return;
     }
     
-    // Validate interest payment does not exceed accrued interest
+    // Validate interest payment does not exceed available interest
     if (paidInterest > 0) {
-      const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
-      const segmentStart = selectedSegment.segment_start;
-      const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
-      const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
-      
-      let maxInterest = 0;
-      
-      if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
-        try {
-          const paymentDate = new Date(paymentDateStr);
-          const segmentStartDate = new Date(segmentStart);
-          const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
-          const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
-          const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
-          maxInterest = calculatedInterest + outstanding;
-        } catch (e) {
-          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-        }
-      } else {
-        maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-      }
+      const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || selectedSegment.segment_start;
+      const maxInterest = calculateMaxAvailableInterest(selectedSegment, paymentDateStr);
       
       if (paidInterest > maxInterest) {
-        setPaymentFormErrors({...paymentFormErrors, paid_interest: `Interest payment (${getCurrencySymbol(currency)}${paidInterest.toFixed(2)}) cannot exceed the accrued interest amount (${getCurrencySymbol(currency)}${maxInterest.toFixed(2)}). Please enter a value less than or equal to this amount.`});
+        setPaymentFormErrors({...paymentFormErrors, paid_interest: `Interest payment (${getCurrencySymbol(currency)}${paidInterest.toFixed(2)}) cannot exceed the available interest amount (${getCurrencySymbol(currency)}${maxInterest.toFixed(2)}). Please enter a value less than or equal to this amount.`});
         return;
       }
     }
@@ -939,8 +968,8 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     {paymentHistory.map((h, idx) => (
                       <tr key={h.id || idx} className="hover:bg-gray-50">
                         <td className="px-2 py-1">{h.id}</td>
-                        <td className="px-2 py-1">{h.segment_start || '-'}</td>
-                        <td className="px-2 py-1">{h.segment_end || '-'}</td>
+                        <td className="px-2 py-1">{(h.segment_start && h.segment_start !== '0000-00-00') ? h.segment_start : '-'}</td>
+                        <td className="px-2 py-1">{(h.segment_end && h.segment_end !== '0000-00-00') ? h.segment_end : '-'}</td>
                         <td className="px-2 py-1">{h.payment_date || '-'}</td>
                         <td className="px-2 py-1 text-center">{h.loan_days || 0}</td>
                         <td className="px-2 py-1 text-center">{h.paid_loan_days || 0}</td>
@@ -1099,54 +1128,18 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     <p className="text-xs text-gray-500 mt-1">Required - Must be after last payment date</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Interest (Accrued)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Interest (Available)</label>
                     <input
                       type="text"
                       value={(() => {
-                        // Calculate interest dynamically based on selected payment date
-                        // Interest accrues from segment START to PAYMENT DATE
-                        // NOT from payment date to segment end!
-                        const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100; // Monthly rate as decimal
-                        const segmentStart = selectedSegment.segment_start;
-                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
-                        
-                        // Use start_balance (balance at segment start) for interest calculation
-                        const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
-                        
-                        let interestToShow = 0;
-                        
-                        if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
-                          try {
-                            const paymentDate = new Date(paymentDateStr);
-                            const segmentStartDate = new Date(segmentStart);
-                            
-                            // Calculate interest from SEGMENT START to PAYMENT DATE
-                            // This is the interest that has accrued up to the payment date
-                            const calcStartDate = segmentStartDate;
-                            const calcEndDate = paymentDate >= segmentStartDate ? paymentDate : segmentStartDate;
-                            const daysDiff = Math.max(0, Math.ceil((calcEndDate - calcStartDate) / (1000 * 60 * 60 * 24)));
-                            
-                            // Calculate interest: Balance × Monthly Rate × (Days / 30)
-                            // This is the exact interest from segment start to payment date
-                            const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
-                            
-                            // Add outstanding interest if any (unpaid from previous periods)
-                            const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
-                            interestToShow = calculatedInterest + outstanding;
-                          } catch (e) {
-                            console.warn('Error calculating interest:', e);
-                            interestToShow = selectedSegment.accrued_interest || 0;
-                          }
-                        } else {
-                          interestToShow = selectedSegment.accrued_interest || 0;
-                        }
-                        
-                        return `${getCurrencySymbol(currency)}${interestToShow.toFixed(2)}`;
+                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || selectedSegment.segment_start;
+                        const interestAvailable = calculateMaxAvailableInterest(selectedSegment, paymentDateStr);
+                        return `${getCurrencySymbol(currency)}${interestAvailable.toFixed(2)}`;
                       })()}
                       disabled
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Calculated from segment start to payment date based on loan days</p>
+                    <p className="text-xs text-gray-500 mt-1">Remaining scheduled interest + outstanding interest + extended period interest (if payment date is after segment end)</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Principal (Remaining)</label>
@@ -1184,64 +1177,19 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                       step="0.01"
                       min="0"
                       max={(() => {
-                        // Calculate maximum allowed interest (accrued interest up to payment date)
-                        const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
-                        const segmentStart = selectedSegment.segment_start;
-                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
-                        const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
-                        
-                        let maxInterest = 0;
-                        
-                        if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
-                          try {
-                            const paymentDate = new Date(paymentDateStr);
-                            const segmentStartDate = new Date(segmentStart);
-                            const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
-                            const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
-                            const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
-                            maxInterest = calculatedInterest + outstanding;
-                          } catch (e) {
-                            maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-                          }
-                        } else {
-                          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-                        }
-                        
-                        return maxInterest.toFixed(2);
+                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || selectedSegment.segment_start;
+                        return calculateMaxAvailableInterest(selectedSegment, paymentDateStr).toFixed(2);
                       })()}
                       value={paymentForm.paid_interest}
                       onChange={(e) => {
                         const enteredValue = parseFloat(e.target.value) || 0;
+                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || selectedSegment.segment_start;
+                        const maxInterest = calculateMaxAvailableInterest(selectedSegment, paymentDateStr);
                         
-                        // Calculate maximum allowed interest
-                        const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
-                        const segmentStart = selectedSegment.segment_start;
-                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
-                        const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
-                        
-                        let maxInterest = 0;
-                        
-                        if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
-                          try {
-                            const paymentDate = new Date(paymentDateStr);
-                            const segmentStartDate = new Date(segmentStart);
-                            const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
-                            const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
-                            const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
-                            maxInterest = calculatedInterest + outstanding;
-                          } catch (e) {
-                            maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-                          }
-                        } else {
-                          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-                        }
-                        
-                        // Validate: cannot exceed maximum accrued interest
+                        // Validate: cannot exceed maximum available interest
                         if (enteredValue > maxInterest) {
-                          // Show error instead of alert
-                          setPaymentFormErrors({...paymentFormErrors, paid_interest: `Interest payment cannot exceed the accrued interest amount (${getCurrencySymbol(currency)}${maxInterest.toFixed(2)}). Please enter a value less than or equal to this amount.`});
+                          setPaymentFormErrors({...paymentFormErrors, paid_interest: `Interest payment cannot exceed the available interest amount (${getCurrencySymbol(currency)}${maxInterest.toFixed(2)}). Please enter a value less than or equal to this amount.`});
                         } else {
-                          // Clear error if valid
                           setPaymentFormErrors({...paymentFormErrors, paid_interest: ''});
                         }
                         
@@ -1253,31 +1201,10 @@ const LoansDetail = ({ token, loanId, onBack, onOpenBorrower, onEditLoan }) => {
                     {paymentFormErrors.paid_interest ? (
                       <p className="text-xs text-red-500 mt-1">{paymentFormErrors.paid_interest}</p>
                     ) : (
-                      <p className="text-xs text-gray-500 mt-1">Enter 0 if no interest payment, or amount up to accrued interest ({getCurrencySymbol(currency)}{(() => {
-                      const loanInterest = parseFloat(loan?.loan_interest || loan?.meta?.loan_interest || 0) / 100;
-                      const segmentStart = selectedSegment.segment_start;
-                      const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || segmentStart;
-                      const balanceForInterest = parseFloat(selectedSegment.start_balance || 0);
-                      
-                      let maxInterest = 0;
-                      
-                      if (paymentDateStr && segmentStart && loanInterest > 0 && balanceForInterest > 0) {
-                        try {
-                          const paymentDate = new Date(paymentDateStr);
-                          const segmentStartDate = new Date(segmentStart);
-                          const daysDiff = Math.max(0, Math.ceil((paymentDate - segmentStartDate) / (1000 * 60 * 60 * 24)));
-                          const calculatedInterest = balanceForInterest * loanInterest * (daysDiff / 30);
-                          const outstanding = parseFloat(selectedSegment.outstanding_interest || 0);
-                          maxInterest = calculatedInterest + outstanding;
-                        } catch (e) {
-                          maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-                        }
-                      } else {
-                        maxInterest = parseFloat(selectedSegment.accrued_interest || 0) + parseFloat(selectedSegment.outstanding_interest || 0);
-                      }
-                      
-                      return maxInterest.toFixed(2);
-                    })()})</p>
+                      <p className="text-xs text-gray-500 mt-1">Enter 0 if no interest payment, or amount up to available interest ({getCurrencySymbol(currency)}{(() => {
+                        const paymentDateStr = paymentForm.payment_date || selectedSegment.paid_date || selectedSegment.segment_start;
+                        return calculateMaxAvailableInterest(selectedSegment, paymentDateStr).toFixed(2);
+                      })()})</p>
                     )}
                   </div>
                   <div>

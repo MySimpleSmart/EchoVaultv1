@@ -2220,8 +2220,11 @@ final class EchoVault_Loan_Schedule_API {
             
             $balance_before = floatval($segment_before['remain_balance'] ?: 0);
             $outstanding_interest_before = floatval($segment_before['outstanding_interest'] ?: 0);
-            $segment_start = isset($segment_before['segment_start']) && !empty($segment_before['segment_start']) ? (string)$segment_before['segment_start'] : '';
-            $segment_end = isset($segment_before['segment_end']) && !empty($segment_before['segment_end']) ? (string)$segment_before['segment_end'] : '';
+            // Check for empty or invalid date (0000-00-00)
+            $segment_start_raw = isset($segment_before['segment_start']) ? (string)$segment_before['segment_start'] : '';
+            $segment_start = (!empty($segment_start_raw) && $segment_start_raw !== '0000-00-00') ? $segment_start_raw : '';
+            $segment_end_raw = isset($segment_before['segment_end']) ? (string)$segment_before['segment_end'] : '';
+            $segment_end = (!empty($segment_end_raw) && $segment_end_raw !== '0000-00-00') ? $segment_end_raw : '';
             $loan_days = isset($segment_before['loan_days']) ? intval($segment_before['loan_days']) : 0;
             
             // Debug logging
@@ -3675,11 +3678,14 @@ final class EchoVault_Loan_Schedule_API {
             $formatted_history = [];
             foreach ($history as $row) {
                 $segment_id = isset($row['segment_id']) ? (int)$row['segment_id'] : 0;
-                $segment_start = isset($row['segment_start']) && !empty($row['segment_start']) ? (string)$row['segment_start'] : '';
-                $segment_end = isset($row['segment_end']) && !empty($row['segment_end']) ? (string)$row['segment_end'] : '';
+                // Check for empty or invalid date (0000-00-00)
+                $segment_start_raw = isset($row['segment_start']) ? (string)$row['segment_start'] : '';
+                $segment_start = (!empty($segment_start_raw) && $segment_start_raw !== '0000-00-00') ? $segment_start_raw : '';
+                $segment_end_raw = isset($row['segment_end']) ? (string)$row['segment_end'] : '';
+                $segment_end = (!empty($segment_end_raw) && $segment_end_raw !== '0000-00-00') ? $segment_end_raw : '';
                 $loan_days = isset($row['loan_days']) ? (int)$row['loan_days'] : 0;
                 
-                // If segment dates are missing, try to fetch from segment table
+                // If segment dates are missing or invalid, try to fetch from segment table
                 if ((empty($segment_start) || empty($segment_end)) && $segment_id > 0) {
                     $segment_data = $wpdb->get_row($wpdb->prepare(
                         "SELECT segment_start, segment_end, loan_days FROM $segment_table_name WHERE id = %d",
@@ -3688,10 +3694,12 @@ final class EchoVault_Loan_Schedule_API {
                     
                     if ($segment_data) {
                         if (empty($segment_start) && isset($segment_data['segment_start'])) {
-                            $segment_start = (string)$segment_data['segment_start'];
+                            $segment_start_val = (string)$segment_data['segment_start'];
+                            $segment_start = (!empty($segment_start_val) && $segment_start_val !== '0000-00-00') ? $segment_start_val : '';
                         }
                         if (empty($segment_end) && isset($segment_data['segment_end'])) {
-                            $segment_end = (string)$segment_data['segment_end'];
+                            $segment_end_val = (string)$segment_data['segment_end'];
+                            $segment_end = (!empty($segment_end_val) && $segment_end_val !== '0000-00-00') ? $segment_end_val : '';
                         }
                         if ($loan_days == 0 && isset($segment_data['loan_days'])) {
                             $loan_days = intval($segment_data['loan_days']);

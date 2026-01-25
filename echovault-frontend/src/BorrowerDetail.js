@@ -61,43 +61,80 @@ const BorrowerDetail = ({ borrower, onBack, onEdit }) => {
     fetchMediaDetails();
   }, [borrower?.document_upload, borrower?.meta?.document_upload]);
 
-  // Load Active Loans from relationship/meta field on borrower (field group: active_loan)
+  // Load Active Loans by fetching all loans and filtering by borrower_id
   useEffect(() => {
     const loadLoans = async () => {
+      if (!borrower?.id) {
+        setActiveLoans([]);
+        return;
+      }
+      
       try {
         setLoadingActiveLoans(true);
-        const raw = borrower?.active_loan || borrower?.meta?.active_loan || borrower?.fields?.active_loan || [];
-        let ids = [];
-        if (Array.isArray(raw)) {
-          ids = raw.map(v => (typeof v === 'object' && v?.ID) ? String(v.ID) : String(v)).filter(Boolean);
-        } else if (typeof raw === 'string') {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) ids = parsed.map(String);
-          } catch (_) {
-            ids = raw.split(',').map(s => s.trim()).filter(Boolean);
-          }
-        } else if (raw) {
-          ids = [String(raw)];
-        }
-        if (!ids.length) { setActiveLoans([]); return; }
         const token = localStorage.getItem('jwt_token');
         const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-        const fetched = [];
         const apiBase = (typeof window !== 'undefined' && window.REACT_APP_API_URL) || process.env.REACT_APP_API_URL || `${window.location.origin}/wp-json`;
-        for (const id of ids) {
-          try {
-            const resp = await fetch(`${apiBase}/wp/v2/loans/${id}?context=edit`, { headers, mode: 'cors' });
-            if (resp.ok) fetched.push(await resp.json());
-          } catch (_) {}
+        
+        // Fetch all loans
+        const borrowerId = String(borrower.id);
+        const response = await fetch(`${apiBase}/wp/v2/loans?per_page=100&status=publish,draft&context=edit`, { headers, mode: 'cors' });
+        
+        if (!response.ok) {
+          setActiveLoans([]);
+          return;
         }
-        setActiveLoans(fetched);
+        
+        const allLoans = await response.json();
+        
+        // Helper function to extract borrower ID from loan (matching LoansDetail.js logic)
+        const toId = (val) => {
+          if (val === null || val === undefined) return null;
+          if (typeof val === 'number') return String(val);
+          if (typeof val === 'string') {
+            const trimmed = val.trim();
+            return trimmed === '' ? null : trimmed;
+          }
+          if (Array.isArray(val) && val.length > 0) return toId(val[0]);
+          if (typeof val === 'object') {
+            if ('id' in val) return String(val.id);
+            if ('ID' in val) return String(val.ID);
+          }
+          return null;
+        };
+        
+        // Filter loans where borrower_id matches
+        const relatedLoans = allLoans.filter(loan => {
+          // Try multiple ways to extract borrower ID (matching LoansDetail.js logic)
+          let loanBorrowerId = toId(loan.meta?.borrower_id) 
+            || toId(loan.borrower) 
+            || toId(loan.meta?.borrower) 
+            || toId(loan.meta?.borrower_profile);
+          
+          // Also check if borrower_id might be stored in fields or acf
+          if (!loanBorrowerId) {
+            loanBorrowerId = toId(loan.fields?.borrower_id) 
+              || toId(loan.acf?.borrower_id)
+              || toId(loan.fields?.borrower)
+              || toId(loan.acf?.borrower);
+          }
+          
+          // Check if borrower is embedded as object with id property
+          if (!loanBorrowerId && loan.borrower && typeof loan.borrower === 'object' && !Array.isArray(loan.borrower)) {
+            loanBorrowerId = toId(loan.borrower.id) || toId(loan.borrower.ID);
+          }
+          
+          return loanBorrowerId && String(loanBorrowerId) === borrowerId;
+        });
+        
+        setActiveLoans(relatedLoans);
+      } catch (error) {
+        setActiveLoans([]);
       } finally {
         setLoadingActiveLoans(false);
       }
     };
     loadLoans();
-  }, [borrower?.active_loan, borrower?.meta?.active_loan]);
+  }, [borrower]);
 
 
   if (!borrower) {
